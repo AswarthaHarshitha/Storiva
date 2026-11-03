@@ -1,11 +1,16 @@
-import express from "express";
+import { createApp } from "./app.js";
+import { env } from "./config/env.js";
+import { prisma } from "./lib/prisma.js";
 
-const app = express();
-app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok" });
+const server = createApp().listen(env.PORT, () => {
+  console.log(`StockFlow API listening on port ${env.PORT}`);
 });
 
-const port = Number(process.env.PORT ?? 4000);
-app.listen(port, () => {
-  console.log(`StockFlow API listening on port ${port}`);
-});
+function shutdown() {
+  server.close(() => {
+    void prisma.$disconnect().finally(() => process.exit(0));
+  });
+}
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

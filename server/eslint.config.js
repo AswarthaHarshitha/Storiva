@@ -11,6 +11,8 @@ export default tseslint.config(
     },
     rules: {
       "@typescript-eslint/restrict-template-expressions": ["error", { allowNumber: true }],
+      // Express identifies error handlers by arity, so an unused trailing `_next` is required.
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
     },
   },
   {
