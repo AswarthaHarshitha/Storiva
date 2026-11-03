@@ -46,6 +46,8 @@ export const productInputSchema = z.object({
   costPrice: optionalPrice("Cost price"),
   sellingPrice: optionalPrice("Selling price"),
   lowStockThreshold: quantity("Low stock threshold").nullish().transform((value) => value ?? null),
+  // Used when creating a product; barcodes of an existing product have their own endpoints.
+  barcodes: z.array(z.string().max(200), { error: "Barcodes must be a list." }).max(10, "Use at most 10 barcodes.").optional(),
 });
 
 export type ProductInput = z.output<typeof productInputSchema>;

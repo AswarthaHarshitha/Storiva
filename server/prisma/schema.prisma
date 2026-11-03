@@ -8,27 +8,31 @@ datasource db {
 }
 
 model Organization {
-  id                        String    @id @default(uuid()) @db.Uuid
-  name                      String    @db.VarChar(120)
-  defaultLowStockThreshold  Int       @default(5) @map("default_low_stock_threshold")
-  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt                 DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
-  users                     User[]
-  products                  Product[]
+  id                       String           @id @default(uuid()) @db.Uuid
+  name                     String           @db.VarChar(120)
+  defaultLowStockThreshold Int              @default(5) @map("default_low_stock_threshold")
+  createdAt                DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  users                    User[]
+  products                 Product[]
+  barcodes                 ProductBarcode[]
+  stockMovements           StockMovement[]
 
   @@map("organizations")
 }
 
 model User {
-  id              String       @id @default(uuid()) @db.Uuid
-  email           String       @unique @db.VarChar(254)
-  passwordHash    String       @map("password_hash")
-  organizationId  String       @map("organization_id") @db.Uuid
-  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id              String           @id @default(uuid()) @db.Uuid
+  email           String           @unique @db.VarChar(254)
+  passwordHash    String           @map("password_hash")
+  organizationId  String           @map("organization_id") @db.Uuid
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   sessions        Session[]
-  updatedProducts Product[]    @relation("ProductLastUpdatedBy")
-  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedProducts Product[]        @relation("ProductLastUpdatedBy")
+  barcodes        ProductBarcode[]
+  stockMovements  StockMovement[]
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([organizationId])
   @@map("users")
@@ -53,22 +57,97 @@ model Session {
 // products_organization_id_sku_key expression index created in the migration SQL,
 // because Prisma cannot declare an index on lower(sku).
 model Product {
-  id                 String       @id @default(uuid()) @db.Uuid
-  organizationId     String       @map("organization_id") @db.Uuid
-  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  name               String       @db.VarChar(200)
-  sku                String       @db.VarChar(64)
-  description        String?      @db.VarChar(2000)
-  quantityOnHand     Int          @default(0) @map("quantity_on_hand")
-  costPrice          Decimal?     @map("cost_price") @db.Decimal(12, 2)
-  sellingPrice       Decimal?     @map("selling_price") @db.Decimal(12, 2)
-  lowStockThreshold  Int?         @map("low_stock_threshold")
-  lastAdjustmentNote String?      @map("last_adjustment_note") @db.VarChar(200)
-  lastUpdatedById    String?      @map("last_updated_by_id") @db.Uuid
-  lastUpdatedBy      User?        @relation("ProductLastUpdatedBy", fields: [lastUpdatedById], references: [id], onDelete: SetNull)
-  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id                 String           @id @default(uuid()) @db.Uuid
+  organizationId     String           @map("organization_id") @db.Uuid
+  organization       Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name               String           @db.VarChar(200)
+  sku                String           @db.VarChar(64)
+  description        String?          @db.VarChar(2000)
+  quantityOnHand     Int              @default(0) @map("quantity_on_hand")
+  costPrice          Decimal?         @map("cost_price") @db.Decimal(12, 2)
+  sellingPrice       Decimal?         @map("selling_price") @db.Decimal(12, 2)
+  lowStockThreshold  Int?             @map("low_stock_threshold")
+  lastAdjustmentNote String?          @map("last_adjustment_note") @db.VarChar(200)
+  lastUpdatedById    String?          @map("last_updated_by_id") @db.Uuid
+  lastUpdatedBy      User?            @relation("ProductLastUpdatedBy", fields: [lastUpdatedById], references: [id], onDelete: SetNull)
+  barcodes           ProductBarcode[]
+  stockMovements     StockMovement[]
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([organizationId, name])
   @@map("products")
+}
+
+enum BarcodeKind {
+  gtin // EAN-8, EAN-13, UPC-A/E or GTIN-14, check digit verified; UPC-A/E stored as GTIN-13
+  other // any other symbology (Code 128, Code 39, QR, ...), stored as scanned
+
+  @@map("barcode_kind")
+}
+
+// A product can carry several codes (e.g. the manufacturer's EAN and a supplier's code).
+// `code` is the normalized form used for lookups; `rawCode` is what was scanned or typed.
+model ProductBarcode {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productId      String       @map("product_id") @db.Uuid
+  product        Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  code           String       @db.VarChar(200)
+  rawCode        String       @map("raw_code") @db.VarChar(200)
+  kind           BarcodeKind
+  createdById    String?      @map("created_by_id") @db.Uuid
+  createdBy      User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([organizationId, code])
+  @@index([productId])
+  @@map("product_barcodes")
+}
+
+enum StockMovementType {
+  create
+  edit
+  adjust
+  receive
+  issue
+  count
+
+  @@map("stock_movement_type")
+}
+
+enum StockMovementSource {
+  manual
+  camera
+  scanner
+
+  @@map("stock_movement_source")
+}
+
+// Append-only record of every change to a product's quantity. The product name and SKU are
+// copied so history stays readable after a product is deleted.
+model StockMovement {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productId      String?             @map("product_id") @db.Uuid
+  product        Product?            @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productSku     String              @map("product_sku") @db.VarChar(64)
+  productName    String              @map("product_name") @db.VarChar(200)
+  type           StockMovementType
+  source         StockMovementSource
+  quantityBefore Int                 @map("quantity_before")
+  quantityChange Int                 @map("quantity_change")
+  quantityAfter  Int                 @map("quantity_after")
+  note           String?             @db.VarChar(200)
+  userId         String?             @map("user_id") @db.Uuid
+  user           User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  idempotencyKey String?             @map("idempotency_key") @db.VarChar(64)
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, productId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("stock_movements")
 }

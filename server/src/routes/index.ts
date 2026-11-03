@@ -1,8 +1,10 @@
 import { Router } from "express";
 import * as auth from "../controllers/authController.js";
+import * as barcodes from "../controllers/barcodeController.js";
 import * as dashboard from "../controllers/dashboardController.js";
 import * as products from "../controllers/productController.js";
 import * as settings from "../controllers/settingsController.js";
+import * as stock from "../controllers/stockController.js";
 import { credentialLimiter } from "../middleware/rateLimit.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 
@@ -25,6 +27,12 @@ apiRouter.get("/products/:id", requireAuth, products.show);
 apiRouter.put("/products/:id", requireAuth, products.update);
 apiRouter.post("/products/:id/adjust-stock", requireAuth, products.adjustStock);
 apiRouter.delete("/products/:id", requireAuth, products.remove);
+apiRouter.get("/products/:id/movements", requireAuth, stock.movements);
+apiRouter.post("/products/:id/barcodes", requireAuth, barcodes.attach);
+apiRouter.delete("/products/:id/barcodes/:barcodeId", requireAuth, barcodes.remove);
+
+apiRouter.get("/barcodes/lookup", requireAuth, barcodes.lookup);
+apiRouter.post("/stock/operations", requireAuth, stock.apply);
 
 apiRouter.get("/settings", requireAuth, settings.show);
 apiRouter.put("/settings", requireAuth, settings.update);
