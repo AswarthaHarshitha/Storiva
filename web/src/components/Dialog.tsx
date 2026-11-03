@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 
 interface DialogProps {
   open: boolean;
@@ -10,6 +10,7 @@ interface DialogProps {
 /** A modal built on <dialog>, which supplies focus trapping, Escape to close and the backdrop. */
 export function Dialog({ open, onClose, title, children }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
     const dialog = ref.current;
@@ -25,12 +26,12 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
       onClick={(event) => {
         if (event.target === ref.current) onClose();
       }}
-      aria-labelledby="dialog-title"
+      aria-labelledby={titleId}
       className="m-auto w-[calc(100%-2rem)] max-w-md rounded-lg border border-line bg-surface p-0 text-ink shadow-xl"
     >
       {open && (
         <div className="p-5 sm:p-6">
-          <h2 id="dialog-title" className="text-base font-semibold">
+          <h2 id={titleId} className="text-base font-semibold">
             {title}
           </h2>
           {children}

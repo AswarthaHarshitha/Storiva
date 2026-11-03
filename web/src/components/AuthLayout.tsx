@@ -3,7 +3,7 @@ import { Wordmark } from "./Wordmark";
 
 export function AuthLayout({ title, subtitle, children, footer }: { title: string; subtitle: string; children: ReactNode; footer: ReactNode }) {
   return (
-    <div className="flex min-h-dvh flex-col items-center px-4 py-10 sm:justify-center sm:py-16">
+    <main className="flex min-h-dvh flex-col items-center px-4 py-10 sm:justify-center sm:py-16">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <Wordmark className="text-lg" />
@@ -16,6 +16,6 @@ export function AuthLayout({ title, subtitle, children, footer }: { title: strin
         </div>
         <p className="mt-6 text-center text-sm text-ink-muted">{footer}</p>
       </div>
-    </div>
+    </main>
   );
 }

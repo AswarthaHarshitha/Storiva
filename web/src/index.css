@@ -9,10 +9,12 @@
   --color-sunken: #efe9e0;
   --color-line: #e3dbcf;
   --color-line-strong: #cbbfae;
+  /* Darker than line-strong so form fields meet the 3:1 non-text contrast minimum. */
+  --color-field: #948776;
 
   --color-ink: #26221e;
   --color-ink-muted: #665d53;
-  --color-ink-faint: #8a8075;
+  --color-ink-faint: #73695e;
 
   --color-accent: #a94b24;
   --color-accent-hover: #8f3e1c;

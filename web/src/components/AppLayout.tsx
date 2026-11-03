@@ -20,10 +20,17 @@ export function AppLayout({ account }: { account: Account }) {
 
   return (
     <div className="min-h-dvh lg:flex">
+      <a
+        href="#main"
+        className="sr-only z-50 rounded-md bg-ink px-3 py-2 text-sm text-canvas focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
+      >
+        Skip to main content
+      </a>
       <aside className="hidden w-60 shrink-0 flex-col border-r border-line bg-surface lg:flex lg:sticky lg:top-0 lg:h-dvh">
         <div className="border-b border-line px-5 py-4">
           <Wordmark />
-          <p className="mt-2 truncate text-sm text-ink-muted" title={account.organization.name}>
+          <p className="mt-4 text-xs text-ink-faint">Organization</p>
+          <p className="truncate text-sm font-medium text-ink" title={account.organization.name}>
             {account.organization.name}
           </p>
         </div>
@@ -76,7 +83,7 @@ export function AppLayout({ account }: { account: Account }) {
         </button>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-6 pb-24 sm:px-6 lg:px-10 lg:py-10">
+      <main id="main" tabIndex={-1} className="mx-auto focus:outline-none w-full max-w-6xl flex-1 px-4 pt-6 pb-24 sm:px-6 lg:px-10 lg:py-10">
         <Outlet />
       </main>
 

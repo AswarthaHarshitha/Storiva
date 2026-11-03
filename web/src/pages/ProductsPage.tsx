@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowUpDown, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import type { Product } from "../api/types";
 import { ButtonLink } from "../components/Button";
+import { IconButton, IconLink } from "../components/IconButton";
 import { LoadingState } from "../components/LoadingState";
 import { PageHeader } from "../components/PageHeader";
 import { QueryError } from "../components/QueryError";
@@ -53,7 +54,7 @@ export function ProductsPage() {
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => e.key === "Escape" && setSearch("")}
               autoComplete="off"
-              className="block w-full rounded-md border border-line-strong bg-surface py-2 pr-9 pl-9 text-sm focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-0 [&::-webkit-search-cancel-button]:hidden"
+              className="block w-full rounded-md border border-field bg-surface py-2 pr-9 pl-9 text-sm focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-0 [&::-webkit-search-cancel-button]:hidden"
             />
             {search && (
               <button
@@ -121,24 +122,17 @@ interface RowActions {
 }
 
 function Actions({ product, onAdjust, onDelete }: RowActions & { product: Product }) {
-  const iconButton = "rounded-md p-2 text-ink-muted hover:bg-sunken hover:text-ink";
   return (
     <div className="flex items-center justify-end gap-0.5">
-      <button type="button" className={iconButton} onClick={() => onAdjust(product)} aria-label={`Adjust stock for ${product.name}`} title="Adjust stock">
+      <IconButton label={`Adjust stock for ${product.name}`} tooltip="Adjust stock" onClick={() => onAdjust(product)}>
         <ArrowUpDown className="size-4" aria-hidden />
-      </button>
-      <Link to={`/products/${product.id}/edit`} className={iconButton} aria-label={`Edit ${product.name}`} title="Edit">
+      </IconButton>
+      <IconLink to={`/products/${product.id}/edit`} label={`Edit ${product.name}`} tooltip="Edit product">
         <Pencil className="size-4" aria-hidden />
-      </Link>
-      <button
-        type="button"
-        className="rounded-md p-2 text-ink-muted hover:bg-danger-soft hover:text-danger"
-        onClick={() => onDelete(product)}
-        aria-label={`Delete ${product.name}`}
-        title="Delete"
-      >
+      </IconLink>
+      <IconButton label={`Delete ${product.name}`} tooltip="Delete product" tone="danger" onClick={() => onDelete(product)}>
         <Trash2 className="size-4" aria-hidden />
-      </button>
+      </IconButton>
     </div>
   );
 }
@@ -147,6 +141,7 @@ function ProductTable({ products, ...actions }: RowActions & { products: Product
   return (
     <div className="hidden overflow-x-auto rounded-lg border border-line bg-surface md:block">
       <table className="w-full text-sm">
+        <caption className="sr-only">Products, sorted by name</caption>
         <thead className="border-b border-line bg-sunken/60 text-left text-xs text-ink-muted">
           <tr>
             <th scope="col" className="px-4 py-2.5 font-medium">Name</th>
@@ -186,7 +181,7 @@ function ProductTable({ products, ...actions }: RowActions & { products: Product
 /** On narrow screens each product becomes a compact block instead of a scrolling table row. */
 function ProductList({ products, ...actions }: RowActions & { products: Product[] }) {
   return (
-    <ul className="divide-y divide-line rounded-lg border border-line bg-surface md:hidden">
+    <ul aria-label="Products" className="divide-y divide-line rounded-lg border border-line bg-surface md:hidden">
       {products.map((product) => (
         <li key={product.id} className="px-4 py-3">
           <div className="flex items-start justify-between gap-3">

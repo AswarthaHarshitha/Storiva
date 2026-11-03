@@ -34,7 +34,7 @@ export function TextField({
   const hintId = hint ? `${id}-hint` : undefined;
   const errorId = error ? `${id}-error` : undefined;
   const describedBy = [errorId, hintId].filter(Boolean).join(" ") || undefined;
-  const border = error ? "border-danger focus-visible:outline-danger" : "border-line-strong";
+  const border = error ? "border-danger focus-visible:outline-danger" : "border-field";
 
   const shared = {
     id,
