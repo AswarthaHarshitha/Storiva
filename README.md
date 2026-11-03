@@ -42,7 +42,9 @@ Every organization's data is isolated from every other organization's on the ser
   first product.
 - **Organization settings.** The default low-stock threshold (initially 5), applied immediately
   to the dashboard and product list.
-- **Search.** Find products by name or SKU.
+- **Search, filter and sort.** Find products by name or SKU, show only low-stock or
+  out-of-stock products, and sort by name or quantity. The dashboard links straight to the
+  low-stock view.
 
 ## Technology stack
 
@@ -198,12 +200,14 @@ cp server/.env.test.example server/.env.test   # then set DATABASE_URL
 | `npm run lint` | ESLint, both workspaces |
 | `npm run build` | Production build of the web app and the API |
 
-The suite currently contains 75 API tests and 28 web unit tests. The API tests cover signup,
-login, logout, expired and forged sessions and every protected route; product validation,
-duplicate SKUs, search, updates, deletion and concurrent stock adjustments; dashboard totals
-and low-stock rules; settings persistence; error responses; and attempts by one organization to
-read, update, adjust or delete another organization's products. The web tests cover client-side
-validation, payload conversion, stock status and the stock adjustment calculation.
+The suite currently contains 83 API tests and 35 web unit tests. The API tests cover signup
+(including concurrent duplicate signups), login, logout, replay of a logged-out session token,
+expired and forged sessions and every protected route; product validation and boundaries,
+duplicate SKUs (including concurrent creates), search, updates, deletion and concurrent stock
+adjustments; dashboard totals and low-stock rules; settings persistence; error responses; and
+attempts by one organization to read, update, adjust or delete another organization's products.
+The web tests cover client-side validation, payload conversion, stock status, the stock
+adjustment calculation, and product filtering and sorting.
 
 ## Security
 

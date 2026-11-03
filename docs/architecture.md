@@ -220,7 +220,7 @@ decimals), `lowStockThreshold` (integer ≥ 0, or `null` for the organization de
 | `lib/` | `validation.ts` (zod schemas mirroring the server rules), `format.ts` (number, price, time formatting) |
 | `components/` | Shared UI: layout, buttons, text fields, dialog, alert, stock status badge, toast |
 | `pages/` | One component per route |
-| `products/` | The adjust-stock and delete-confirmation dialogs, and `stockAdjustment.ts`, the pure calculation behind the adjust dialog |
+| `products/` | The adjust-stock and delete-confirmation dialogs; `stockAdjustment.ts` (the calculation behind the adjust dialog) and `productView.ts` (status filter and sort), both pure and unit-tested |
 
 **Routing and auth state** (`App.tsx`). On load the app calls `GET /api/auth/me`. With no session
 only `/login` and `/signup` exist and any other address redirects to login, remembering where the
@@ -237,6 +237,12 @@ server's field errors (for example a duplicate SKU) next to the right field. The
 validates again; client validation is only for faster feedback. Submit buttons are disabled with
 a progress label while a request is in flight and repeated submits are ignored, and a
 confirmation notice appears only after the server has confirmed the change.
+
+**Filtering and sorting** on the products page work on the list the server returns: "Low stock"
+uses the server's `isLowStock` flag, so it always agrees with the dashboard count (out-of-stock
+products included), and the quantity sorts keep name order for ties. The chosen filter and sort
+live in the URL (`/products?status=low&sort=quantity-asc`), which is how the dashboard links to
+its low-stock view. Search stays on the server.
 
 **Stock adjustment dialog** shows units on hand, the signed change and the resulting quantity as
 the amount is typed, flags a removal that would go below zero immediately, and labels the button

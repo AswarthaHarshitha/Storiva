@@ -11,7 +11,8 @@ exists. Two kinds of verification are referenced:
   tablet (820 px) and phone (390 px) widths against the production build (`NODE_ENV=production`,
   compiled server serving the built web app). It fails on any browser console error and runs an
   axe-core WCAG 2.1 A/AA scan of every screen and dialog. Last run locally on 3 November 2026:
-  all steps passed, no console errors, no accessibility violations. It will be repeated against
+  all steps passed, no console errors, no accessibility violations. The script was run during
+  development and is not part of the repository's automated suite. It will be repeated against
   the live deployment.
 
 Paths: `S/` is `server/src/`, `W/` is `web/src/`.
@@ -22,13 +23,13 @@ Paths: `S/` is `server/src/`, `W/` is `web/src/`.
 | --- | --- | --- | --- | --- | --- | --- |
 | FR-1.1 | Sign up with email, password, confirm password and organization name | Done | `S/services/authService.ts` `signUp`, `S/validation/auth.ts` | `W/pages/SignupPage.tsx` | auth: signup creates user + org; validates every field; confirmation must match; duplicate email (any case) → 409 | Browser: empty form errors, mismatched confirmation, successful signup |
 | FR-1.2 | Email and password login with basic validation | Done | `verifyCredentials`, `S/controllers/authController.ts` | `W/pages/LoginPage.tsx` | auth: valid login; wrong password and unknown email give identical 401; validation 422 | Browser: wrong password message, then successful login |
-| FR-1.3 | Logout | Done | `logout` revokes the session row | `W/components/AppLayout.tsx` | auth: session revoked on logout | Browser: logout, then protected page redirects to login |
+| FR-1.3 | Logout | Done | `logout` revokes the session row | `W/components/AppLayout.tsx` | auth: session revoked on logout; the old token replayed after logout gets 401 | Browser: logout, then protected page redirects to login |
 | FR-1.4 | Passwords hashed (bcrypt) | Done | bcrypt cost 12 in `authService.ts` | | auth: stored hash is bcrypt `$2…$12$`, not the password | |
 | FR-1.5 | Protected routes | Done | `S/middleware/requireAuth.ts` on every data route | `W/App.tsx` redirects to `/login`; 401 handler in `W/main.tsx` | auth: all 10 protected endpoints return 401 without a session; forged and expired cookies rejected | Browser: `/products` and `/settings` redirect when logged out |
-| FR-2.1 | Organization created on signup and linked to the user | Done | Org and user created in one transaction | Org name shown in navigation | auth: user's `organizationId` matches the new org | Browser: org name visible after signup |
+| FR-2.1 | Organization created on signup and linked to the user | Done | Org and user created in one transaction | Org name shown in navigation | auth: user's `organizationId` matches the new org; five concurrent signups with one email create exactly one user and one organization | Browser: org name visible after signup |
 | FR-2.2 | All data scoped by organization; no cross-tenant access | Done | Every query in `S/services/productService.ts`, `dashboardService.ts`, `settingsService.ts` filters by the session's organization; other orgs' products return 404 | | tenantIsolation: A cannot list, search, read, update, adjust or delete B's product; B's row unchanged; forged `organizationId` ignored; dashboards and settings separate | Browser: second organization starts empty, gets "Product not found" and 404s for the first org's product, which stays intact |
 | FR-3 | Product model: name, SKU (unique per org), description, quantity, cost/selling price, low-stock threshold, timestamps | Done | `server/prisma/schema.prisma`; case-insensitive unique index and CHECK constraints in the migration | `W/api/types.ts` | products: all fields stored; prices exact to the cent; empty optionals become null | |
-| FR-4.1 | Create product with validation | Done | `createProduct`, `S/validation/product.ts` | `W/pages/ProductFormPage.tsx` | products: 11 invalid inputs rejected with field errors; duplicate SKU (any case) → 409; same SKU allowed in another org | Browser: negative quantity and 3-decimal price rejected inline; duplicate SKU shown on the SKU field |
+| FR-4.1 | Create product with validation | Done | `createProduct`, `S/validation/product.ts` | `W/pages/ProductFormPage.tsx` | products: 14 invalid inputs rejected with field errors (including fractional threshold, 11-digit price, quantity above the limit); largest price stored exactly; duplicate SKU (any case) → 409, also under concurrent creates; same SKU allowed in another org | Browser: negative quantity and 3-decimal price rejected inline; duplicate SKU shown on the SKU field |
 | FR-4.2 | Product list: name, SKU, quantity, low-stock indicator, selling price | Done | `listProducts` returns `effectiveThreshold` and `isLowStock` | `W/pages/ProductsPage.tsx` table and phone list | products: sorted list with low-stock flags | Browser: out / low (default) / low (own threshold) / in stock badges |
 | FR-4.3 | Search by name or SKU | Done | `?q=` case-insensitive match on name or SKU | Debounced search field, result count, no-match state | products: name search, SKU search, no match | Browser: search by name, by SKU, no match, clear |
 | FR-4.4 | Edit any field, including quantity | Done | `updateProduct` | Edit form | products: all fields updated; keep own SKU but not take another's; invalid quantity leaves row unchanged | Browser: quantity edit reflected in list and status |
@@ -53,7 +54,7 @@ Paths: `S/` is `server/src/`, `W/` is `web/src/`.
 | NFR-5a | Accessibility | Done | Visible labels, linked error messages, focus management, skip link, landmarks, keyboard-visible tooltips, AA contrast | Browser: keyboard reaches row actions and shows tooltips; skip link works; axe-core reports no WCAG 2.1 A/AA violations |
 | NFR-6 | No secrets in the repository | Done | Only `.env.example` is committed; `.env*` ignored | `git ls-files` reviewed |
 | NFR-7 | No fabricated data | Done | No seed data or demo accounts; new organizations start empty | Browser: new organization's dashboard and product list are empty |
-| NFR-8 | TypeScript strict, lint, tests and build pass | Done | `strict` in both workspaces; ESLint (type-checked rules on the server) | `npm run typecheck`, `npm run lint`, `npm test` (75 API, 28 web tests), `npm run build` |
+| NFR-8 | TypeScript strict, lint, tests and build pass | Done | `strict` in both workspaces; ESLint (type-checked rules on the server) | `npm run typecheck`, `npm run lint`, `npm test` (83 API, 35 web tests), `npm run build` |
 
 ## Assessment requirements
 
@@ -63,6 +64,15 @@ Paths: `S/` is `server/src/`, `W/` is `web/src/`.
 | A-2 | Regular, meaningful commits | Done | Commits pushed as each stage was completed |
 | A-3 | Deployed on a server | Pending | `render.yaml` prepared; deployment requires the owner's Render and Neon accounts |
 | A-4 | Live link shared and verified | Pending | The browser walkthrough will be repeated against the live URL |
+
+## Additions beyond the PRD
+
+Small additions that support the required workflows without adding new data or API surface:
+
+| Addition | Reason | Implementation | Verification |
+| --- | --- | --- | --- |
+| Status filter (all / low stock / out of stock) and sort (name / quantity) on the product list | Lets the owner act on the dashboard's low-stock count from the products page; the dashboard links to the filtered view | `W/products/productView.ts`, client-side over the API's list | Web unit tests; browser: filter, sort, combined empty state, dashboard link |
+| Accessibility work (skip link, landmarks, keyboard-visible tooltips, AA contrast) | Usable with keyboard and screen readers | See NFR-5a | axe-core scan, keyboard checks |
 
 ## Out of scope (PRD §4)
 
