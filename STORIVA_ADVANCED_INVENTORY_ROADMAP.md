@@ -172,15 +172,46 @@ behaviour; product create, edit and adjust additionally write ledger entries.
 | Count overwrites a change made while counting | Count carries the quantity the user saw; a mismatch is returned for review |
 | Scope creep against the assessment | Separate branch; `main` unchanged |
 
-## 8. Acceptance criteria — Phase 1
+## 8. Acceptance criteria — Phase 1 (complete, 3 November 2026)
 
-- [ ] A product can have several barcodes; codes are unique per organization after normalization;
-      a UPC-A and its EAN-13 form match the same product.
-- [ ] Invalid GTIN check digits are rejected with a clear message.
-- [ ] Scanning (camera or hardware) finds a product in the caller's organization only.
-- [ ] Receive and issue change stock atomically, never below zero, with a ledger entry.
-- [ ] A count shows system quantity, counted quantity and difference, requires confirmation, and
-      refuses to overwrite a quantity that changed since it was displayed.
-- [ ] Re-submitting an operation with the same idempotency key does not apply it twice.
-- [ ] Unknown codes lead to "attach to existing product" or "create product with this barcode".
-- [ ] All existing tests and workflows still pass.
+Verified on the production build with a dedicated QA organization: 169 API tests and 42 web
+unit tests, the original 27-step browser walkthrough (unchanged features), and a 15-step scanner
+walkthrough in which Chromium's camera is fed a video of real EAN-13 and UPC-A barcodes, so the
+camera, decoder, lookup and ledger path is exercised end to end. No console errors and no
+axe-core WCAG 2.1 A/AA violations.
+
+- [x] A product can have several barcodes; codes are unique per organization after
+      normalization; UPC-A, EAN-13 and GTIN-14 forms (and expanded UPC-E) match the same product.
+      *API tests; camera test reading a UPC-A label for a product registered by its EAN-13 form.*
+- [x] Invalid GTIN check digits are rejected with a clear message. *Unit, API and browser tests.*
+- [x] Scanning (camera or hardware) finds a product in the caller's organization only. *API
+      tests; browser: a second organization scanning the same code sees "not in your inventory".*
+- [x] Receive and issue change stock atomically, never below zero, with a ledger entry.
+      *API tests including simultaneous operations; browser: camera receive, scanner issue.*
+- [x] A count shows system quantity, counted quantity and difference, requires confirmation, and
+      refuses to overwrite a quantity that changed since it was displayed. *API test; browser:
+      stock issued during a count, count refused, form refreshed, re-confirmed.*
+- [x] Re-submitting an operation with the same idempotency key does not apply it twice. *API
+      tests for sequential and simultaneous duplicates; the latter was confirmed to fail when
+      the race handling is removed.*
+- [x] Unknown codes lead to "attach to existing product" or "create product with this barcode".
+      *Browser test of both paths.*
+- [x] Holding a barcode in front of the camera does not repeat an operation. *Unit tests;
+      browser: continuous receive applied exactly once while the code stayed in view for 4 s.*
+- [x] All existing tests and workflows still pass. *A regression found here (the product edit
+      form not returning to the list after saving, caused by a form remount racing the save
+      callback) was fixed in its own commit.*
+- [x] The migration is additive and safe on real data: applied to a local copy of the
+      production rows (organizations, users, products), every product row was identical
+      afterwards, and existing products could be scanned, received and edited. The copy was
+      deleted after the check.
+
+### Not done in Phase 1
+
+- Nothing has been deployed: production still runs `main`.
+- Existing products have no barcodes until they are added (product page or "Add it to an
+  existing product" after a scan) and no ledger history before the migration.
+- Without a reported format, an 8-digit number is treated as EAN-8; a hardware scanner set to
+  transmit UPC-E unexpanded would not match its UPC-A form. Most scanners expand UPC-E by
+  default; this is noted for Phase 2.
+- The browser walkthroughs are development scripts, not part of the repository's suite.

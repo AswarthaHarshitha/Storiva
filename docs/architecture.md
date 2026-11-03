@@ -179,14 +179,44 @@ low-stock list) uses Prisma's `$queryRaw` tagged template, which sends values as
   The same rule is computed in SQL for the dashboard and in `productService.toView` for the
   product list (`effectiveThreshold`, `isLowStock`). A product at zero is shown as
   "Out of stock" and still counts as low stock.
-- **Stock adjustment** (`POST /api/products/:id/adjust-stock`) is a single conditional
-  `UPDATE ... SET quantity_on_hand = quantity_on_hand + delta WHERE quantity_on_hand >= -delta`.
-  Concurrent adjustments therefore cannot overwrite each other or push stock below zero; a test
-  fires 15 simultaneous `-1` adjustments at 10 units and checks that exactly 10 succeed. Each
-  adjustment records who made it and an optional note (`last_updated_by_id`,
-  `last_adjustment_note`); there is deliberately no movement history (out of scope).
+- **Every quantity change** (create, edit, quick adjust, receive, issue, count) locks the
+  product row (`SELECT … FOR UPDATE`), changes the quantity and appends a `stock_movements` row
+  in one transaction. Concurrent changes are applied one after another, so they cannot
+  overwrite each other or push stock below zero, and every ledger row starts exactly where the
+  previous one ended (tested with simultaneous operations).
+- **Stock ledger** (`stock_movements`): type, source (`manual`, `camera`, `scanner`), quantity
+  before, change and after, user, note, and a snapshot of the product's SKU and name so history
+  stays readable after a product is deleted. CHECK constraints reject a row whose arithmetic
+  does not add up or that describes negative stock. History starts when the ledger was
+  introduced; nothing is reconstructed for earlier changes.
+- **Receive / issue / count** (`POST /api/stock/operations`):
+  - Issue never takes stock below zero.
+  - A count carries the quantity the user saw (`expectedQuantity`). If stock changed in the
+    meantime the count is refused with `409 QUANTITY_CHANGED` and the current figure, so a
+    count never silently overwrites a newer change.
+  - Every request carries an idempotency key (unique per organization). A repeat of an applied
+    key returns the original result with `replayed: true`. If two identical requests arrive at
+    once, the unique index makes one transaction fail and roll back, and that request then
+    returns the winner's result.
 - **Last updated by**: every create, edit and adjustment stores the acting user, shown on the
   edit page with the timestamp.
+
+## 6a. Barcodes
+
+- A product can carry several barcodes (`product_barcodes`), unique per organization. A
+  composite foreign key `(product_id, organization_id)` guarantees in the database that a
+  barcode belongs to a product of the same organization.
+- **Normalization** (`server/src/lib/barcode.ts`): EAN-8, EAN-13, UPC-A, UPC-E, ITF-14 and
+  ISBN codes are validated with the GS1 check digit and stored in one canonical form. UPC-A
+  and GTIN-14 with indicator 0 become GTIN-13, and UPC-E is expanded first. So one item
+  matches whichever way its code is printed or reported. Other symbologies (Code 128, Code 39,
+  QR, Data Matrix, …) are stored exactly as read. Format names are matched on letters and
+  digits, so the decoder's `EAN13` and a label's `EAN-13` are the same. Without a format (typed
+  or from a hardware scanner), an 8-digit number is read as EAN-8.
+- **Lookup** (`GET /api/barcodes/lookup?code=&format=`) searches only the caller's
+  organization: registered barcodes first, then an exact, case-insensitive SKU match. The same
+  barcode can be registered independently by different organizations, and one organization
+  can never see another's.
 
 ## 7. API reference
 
@@ -206,13 +236,42 @@ session.
 | GET | `/products/:id` | | product |
 | PUT | `/products/:id` | all product fields | updated product |
 | POST | `/products/:id/adjust-stock` | `delta` (non-zero integer), `note?` | updated product |
-| DELETE | `/products/:id` | | `204` |
+| DELETE | `/products/:id` | | `204`; its barcodes are removed, its ledger rows keep a snapshot |
+| GET | `/barcodes/lookup?code=&format=` | | normalized code and the matching product, or `product: null` |
+| POST | `/products/:id/barcodes` | `code`, `format?` | `201` product with its barcodes |
+| DELETE | `/products/:id/barcodes/:barcodeId` | | product with its barcodes |
+| POST | `/stock/operations` | `productId`, `type` (`receive` / `issue` with `quantity`; `count` with `countedQuantity` and `expectedQuantity`), `source?`, `note?`, `idempotencyKey` | `201` movement and product; `200` with `replayed: true` for a repeated key |
+| GET | `/products/:id/movements?limit=` | | the product's recent stock movements, newest first |
 | GET | `/settings` | | organization name and default threshold |
 | PUT | `/settings` | `defaultLowStockThreshold` | updated settings |
 
 Product fields: `name` (required), `sku` (required; letters, digits, `. _ - /`), `description`,
 `quantityOnHand` (required integer ≥ 0), `costPrice`, `sellingPrice` (non-negative, up to two
-decimals), `lowStockThreshold` (integer ≥ 0, or `null` for the organization default).
+decimals), `lowStockThreshold` (integer ≥ 0, or `null` for the organization default), and
+on create only `barcodes` (up to 10 codes).
+
+## 7a. Scanner
+
+`web/src/scanner/` and `web/src/pages/ScanPage.tsx`.
+
+- **Decoding** uses zxing-wasm (the WebAssembly build of ZXing-C++) entirely in the browser;
+  camera frames are never uploaded. The `.wasm` file is bundled and served from Storiva's own
+  origin instead of the library's default CDN, so the Content Security Policy only needs
+  `'wasm-unsafe-eval'` in addition to `'self'`. It is fetched the first time a frame is
+  decoded, so other pages never load it.
+- **Camera loop** (`useCameraScanner`): a frame is drawn to a canvas and decoded roughly every
+  120 ms, one at a time. Supports choosing among the device's cameras and the torch where the
+  browser exposes it. Permission and device failures produce specific messages, and the
+  barcode field is always available instead.
+- **Duplicate protection** (`ScanDeduplicator`): a code is reported once and then ignored while
+  it stays in view; it is reported again only after being absent for 1.2 s. In normal use a scan
+  also pauses the camera until the result is dealt with.
+- **Hardware scanners** (USB/Bluetooth) behave as keyboards: they type the code and press
+  Enter into the barcode field, which stays focused on devices with a mouse. Keystroke timing
+  (under 35 ms per key) labels the source as `scanner` rather than `manual`.
+- **Modes**: Find, Receive, Issue, Count, Add new. Continuous mode (receive/issue only) applies
+  one unit per scan without a form.
+- **Idempotency**: each action form generates one key when it opens and resends it on retry.
 
 ## 8. Web client
 

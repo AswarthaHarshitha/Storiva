@@ -57,15 +57,23 @@ Every organization's data is isolated from every other organization's on the ser
   first product.
 - **Organization settings.** The default low-stock threshold (initially 5), applied immediately
   to the dashboard and product list.
-- **Search, filter and sort.** Find products by name or SKU, show only low-stock or
+- **Search, filter and sort.** Find products by name, SKU or barcode, show only low-stock or
   out-of-stock products, and sort by name or quantity. The dashboard links straight to the
   low-stock view.
+- **Barcode scanning.** Scan with a phone, tablet or laptop camera, or with a USB/Bluetooth
+  scanner, to find a product, receive or issue stock, record a physical count, or start a new
+  product with its barcode filled in. EAN/UPC codes are check-digit validated and matched in
+  any equivalent form; a product can have several barcodes.
+- **Stock history.** Every quantity change is recorded with who made it, how (manual, camera,
+  scanner) and the quantity before and after. Repeated submissions are applied once, and a
+  count is refused if the stock changed while it was being taken.
 
 ## Technology stack
 
 | Area | Technology |
 | --- | --- |
 | Frontend | React 19, TypeScript 5.9, Vite 7, Tailwind CSS 4, TanStack Query 5, React Router 7, Lucide icons |
+| Barcode decoding | zxing-wasm (ZXing-C++ compiled to WebAssembly), in the browser |
 | Backend | Node.js (20.19 or newer; 22 in `.nvmrc`), Express 5, TypeScript 5.9 |
 | Validation | zod 4, on both the client and the server |
 | Database | PostgreSQL, Prisma 6 ORM and migrations |
@@ -134,7 +142,8 @@ web/
     hooks/             Server data, authentication and form state
     pages/             Screens (login, signup, dashboard, products, product form, settings)
     components/        Shared UI components
-    products/          Stock adjustment and delete dialogs
+    products/          Stock adjustment and delete dialogs, barcodes, stock history
+    scanner/           Camera scanning, barcode entry, scan actions
     lib/               Client-side validation and formatting
 docs/architecture.md   Technical walkthrough
 REQUIREMENTS.md        Requirements traceability
@@ -216,14 +225,17 @@ cp server/.env.test.example server/.env.test   # then set DATABASE_URL
 | `npm run lint` | ESLint, both workspaces |
 | `npm run build` | Production build of the web app and the API |
 
-The suite currently contains 88 API tests and 35 web unit tests. The API tests cover signup
+The suite currently contains 169 API tests and 42 web unit tests. The API tests cover signup
 (including concurrent duplicate signups), login, logout, replay of a logged-out session token,
 expired and forged sessions and every protected route; product validation and boundaries,
 duplicate SKUs (including concurrent creates), search, updates, deletion and concurrent stock
 adjustments; dashboard totals and low-stock rules; settings persistence; error responses; and
 attempts by one organization to read, update, adjust or delete another organization's products.
-The web tests cover client-side validation, payload conversion, stock status, the stock
-adjustment calculation, and product filtering and sorting.
+Barcode tests cover normalization and check digits, equivalent EAN/UPC forms, aliases,
+duplicate and invalid codes, and isolation between organizations; stock tests cover receive,
+issue, counts against a changed quantity, idempotent and simultaneous requests, and ledger
+consistency. The web tests cover client-side validation, payload conversion, stock status, the
+stock adjustment calculation, product filtering and sorting, and scan de-duplication.
 
 ## Security
 
