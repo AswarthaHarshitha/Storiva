@@ -29,7 +29,7 @@ export function SettingsPage() {
             <h2 className="text-sm font-semibold">Organization</h2>
             <p className="mt-1 text-sm text-ink-muted">{settings.data.organizationName}</p>
           </section>
-          <ThresholdForm key={settings.data.defaultLowStockThreshold} settings={settings.data} />
+          <ThresholdForm settings={settings.data} />
         </div>
       )}
     </>

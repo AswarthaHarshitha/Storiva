@@ -92,7 +92,7 @@ export function EditProductPage() {
     <>
       {backLink}
       <PageHeader title={product.data.name} description={<LastUpdated product={product.data} />} />
-      <ProductForm key={product.data.updatedAt} product={product.data} initialValues={toFormValues(product.data)} />
+      <ProductForm key={product.data.id} product={product.data} initialValues={toFormValues(product.data)} />
     </>
   );
 }
