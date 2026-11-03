@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+
+# Local environment files hold secrets; only the .example files are committed.
+.env
+.env.*
+!.env.example

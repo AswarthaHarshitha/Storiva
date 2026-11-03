@@ -1,0 +1,24 @@
+{
+  "name": "stockflow",
+  "private": true,
+  "description": "Multi-tenant inventory management for small sellers.",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w web && npm run build -w server",
+    "start": "npm run start -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "lint": "npm run lint -w server && npm run lint -w web",
+    "test": "npm run test -w server && npm run test -w web"
+  },
+  "overrides": {
+    "vite": "7.3.7"
+  }
+}
