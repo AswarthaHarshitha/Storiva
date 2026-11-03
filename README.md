@@ -177,9 +177,9 @@ The API reads these from `server/.env` (see `server/.env.example`). The web app 
 | --- | --- | --- | --- |
 | `DATABASE_URL` | Yes | PostgreSQL connection string | `postgresql://USER:PASSWORD@localhost:5432/storiva` |
 | `PORT` | No | Port the API listens on (default `4000`; set by Render) | `4000` |
-| `NODE_ENV` | No | `development`, `test` or `production`. Production adds the `Secure` cookie flag, trusts `TRUST_PROXY_HOPS` proxies and serves the built web app | `development` |
+| `NODE_ENV` | No | `development`, `test` or `production`. Production adds the `Secure` cookie flag, trusts the hosting proxy and serves the built web app | `development` |
 | `SESSION_TTL_DAYS` | No | Session lifetime in days, 1–90 (default `7`) | `7` |
-| `TRUST_PROXY_HOPS` | No | Production only: number of reverse proxies in front of the server, used to find the client IP for rate limiting (default `1`; `2` on Render) | `2` |
+| `CLIENT_IP_HEADER` | No | Header holding the real client IP, set by the edge proxy; used by the login rate limiter. Leave unset locally; `cf-connecting-ip` on Render | `cf-connecting-ip` |
 
 The variables are validated at startup; the server refuses to start with a clear message if one
 is missing or invalid.

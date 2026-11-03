@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import cookieParser from "cookie-parser";
 import express from "express";
 import helmet from "helmet";
-import { env, isProduction } from "./config/env.js";
+import { isProduction } from "./config/env.js";
 import { apiNotFound, errorHandler } from "./middleware/errorHandler.js";
 import { apiRouter } from "./routes/index.js";
 
@@ -14,9 +14,9 @@ const webDist = fileURLToPath(new URL("../../web/dist", import.meta.url));
 export function createApp() {
   const app = express();
   app.disable("x-powered-by");
-  // The hosting proxies terminate TLS; trusting exactly their hops gives the real client IP,
-  // which the login rate limiter relies on.
-  if (isProduction) app.set("trust proxy", env.TRUST_PROXY_HOPS);
+  // The hosting proxy terminates TLS. The rate limiter's client address comes from
+  // CLIENT_IP_HEADER (see middleware/rateLimit.ts), not from the proxy-hop count.
+  if (isProduction) app.set("trust proxy", 1);
 
   app.use(helmet());
   app.use(express.json({ limit: "20kb" }));

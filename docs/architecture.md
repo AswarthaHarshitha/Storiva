@@ -131,11 +131,13 @@ server, not just forgotten by the browser. This is the main reason for server-si
 a stateless JWT.
 
 **Rate limiting.** Signup and login allow 20 attempts per 15 minutes per IP
-(`express-rate-limit`). The limit is per client IP, so in production the app trusts exactly
-`TRUST_PROXY_HOPS` proxies. On Render that is 2 (Cloudflare, then Render's load balancer); with
-only 1, the Cloudflare edge address was taken as the client and unrelated users shared a quota.
-Trusting more hops than exist would let a client forge its address with an `X-Forwarded-For`
-header.
+(`express-rate-limit`). The limit is keyed on the client IP (IPv6 grouped by /56 subnet). Render
+serves the app through Cloudflare, and the number of proxy entries in `X-Forwarded-For` turned
+out not to be stable there, so `req.ip` could be a Cloudflare edge address that changes from one
+request to the next. In production the key therefore comes from the header named by
+`CLIENT_IP_HEADER` (`cf-connecting-ip`), which Cloudflare overwrites on every request with the
+address it received the connection from. `X-Forwarded-For` is never used as the key, because
+clients can set it themselves.
 
 ## 5. Tenant isolation
 
@@ -286,7 +288,7 @@ collapse to one column.
 - **Database**: a managed PostgreSQL instance (Neon). Its connection string is the only secret
   and is set as `DATABASE_URL` in Render, never committed.
 
-With `NODE_ENV=production` the server sets the `Secure` cookie flag, trusts `TRUST_PROXY_HOPS` proxies, and
+With `NODE_ENV=production` the server sets the `Secure` cookie flag, trusts the hosting proxy, keys the rate limiter on `CLIENT_IP_HEADER`, and
 serves `web/dist` with long-lived caching for hashed assets and `no-cache` for `index.html`.
 
 ## 11. Decisions and trade-offs

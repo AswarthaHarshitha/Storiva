@@ -1,21 +1,10 @@
 import { Router } from "express";
-import { rateLimit } from "express-rate-limit";
-import { env } from "../config/env.js";
 import * as auth from "../controllers/authController.js";
 import * as dashboard from "../controllers/dashboardController.js";
 import * as products from "../controllers/productController.js";
 import * as settings from "../controllers/settingsController.js";
+import { credentialLimiter } from "../middleware/rateLimit.js";
 import { requireAuth } from "../middleware/requireAuth.js";
-
-// Slows down password guessing and mass sign-ups from a single address.
-const credentialLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 20,
-  standardHeaders: "draft-8",
-  legacyHeaders: false,
-  skip: () => env.NODE_ENV === "test",
-  message: { error: { code: "RATE_LIMITED", message: "Too many attempts. Please wait a few minutes and try again." } },
-});
 
 export const apiRouter = Router();
 

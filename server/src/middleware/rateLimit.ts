@@ -1,0 +1,29 @@
+import { ipKeyGenerator, rateLimit } from "express-rate-limit";
+import { env } from "../config/env.js";
+
+/**
+ * The address a request is rate-limited by. Behind a CDN, Express's req.ip is only as good as
+ * the proxy-hop count, which is not stable on Render; when CLIENT_IP_HEADER names a header the
+ * edge sets itself (Cloudflare's cf-connecting-ip, which it overwrites on every request), that
+ * header is used instead.
+ */
+interface RequestLike {
+  ip?: string | undefined;
+  get(name: string): string | undefined;
+}
+
+export function clientAddress(req: RequestLike, header: string | undefined): string {
+  const fromHeader = header ? req.get(header)?.split(",")[0]?.trim() : undefined;
+  return ipKeyGenerator(fromHeader || req.ip || "unknown");
+}
+
+// Slows down password guessing and mass sign-ups from a single address.
+export const credentialLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  keyGenerator: (req) => clientAddress(req, env.CLIENT_IP_HEADER),
+  skip: () => env.NODE_ENV === "test",
+  message: { error: { code: "RATE_LIMITED", message: "Too many attempts. Please wait a few minutes and try again." } },
+});

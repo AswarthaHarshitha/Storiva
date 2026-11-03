@@ -5,11 +5,15 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(7),
-  // Reverse proxies between the internet and this process in production. Express reads the
-  // client address this many entries from the end of X-Forwarded-For, so it must match the
-  // hosting setup exactly: too few and every client looks like the proxy, too many and the
-  // client can forge its own address.
-  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(1),
+  // A header set by the edge proxy that holds the real client IP (cf-connecting-ip on Render,
+  // which sits behind Cloudflare). Only set this when every request passes through that proxy,
+  // otherwise clients could choose their own rate-limit key.
+  CLIENT_IP_HEADER: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .optional()
+    .transform((value) => value || undefined),
 });
 
 const parsed = envSchema.safeParse(process.env);
