@@ -8,12 +8,18 @@ const hashToken = (token: string) => createHash("sha256").update(token).digest("
 
 export const sessionTtlMs = () => env.SESSION_TTL_DAYS * DAY_MS;
 
-/** Creates a session and returns the raw token for the cookie. Only its hash is stored. */
+/**
+ * Creates a session and returns the raw token for the cookie. Only its hash is stored.
+ * The user's expired sessions are removed at the same time so abandoned ones don't pile up.
+ */
 export async function createSession(userId: string): Promise<string> {
   const token = randomBytes(32).toString("base64url");
-  await prisma.session.create({
-    data: { tokenHash: hashToken(token), userId, expiresAt: new Date(Date.now() + sessionTtlMs()) },
-  });
+  await prisma.$transaction([
+    prisma.session.deleteMany({ where: { userId, expiresAt: { lte: new Date() } } }),
+    prisma.session.create({
+      data: { tokenHash: hashToken(token), userId, expiresAt: new Date(Date.now() + sessionTtlMs()) },
+    }),
+  ]);
   return token;
 }
 

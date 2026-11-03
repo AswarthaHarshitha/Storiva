@@ -124,6 +124,17 @@ describe("protected routes", () => {
     await request(app).get("/api/dashboard").set("Cookie", "storiva_session=forged-token").expect(401);
   });
 
+  it("removes a user's expired sessions when they next log in", async () => {
+    const { email } = await signUpAgent();
+    await request(app).post("/api/auth/login").send({ email, password: "secret123" }).expect(200);
+    await prisma.session.updateMany({ data: { expiresAt: new Date(Date.now() - 1000) } });
+    // A new browser, so no old cookie is presented and revoked by the login itself.
+    await request(app).post("/api/auth/login").send({ email, password: "secret123" }).expect(200);
+    const sessions = await prisma.session.findMany();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.expiresAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
   it("rejects an expired session", async () => {
     const { agent } = await signUpAgent();
     await prisma.session.updateMany({ data: { expiresAt: new Date(Date.now() - 1000) } });
