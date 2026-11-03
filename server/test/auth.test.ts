@@ -59,6 +59,13 @@ describe("signup", () => {
     expect(res.body.error.fields.password).toMatch(/letter and one number/);
   });
 
+  it("creates exactly one account and organization when the same email signs up concurrently", async () => {
+    const results = await Promise.all(Array.from({ length: 5 }, () => signup()));
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409, 409, 409, 409]);
+    expect(await prisma.user.count()).toBe(1);
+    expect(await prisma.organization.count()).toBe(1);
+  });
+
   it("ignores an organizationId supplied by the client", async () => {
     const { account } = await signUpAgent("Existing");
     const res = await signup({ organizationId: account.organization.id }).expect(201);
@@ -89,6 +96,14 @@ describe("login and logout", () => {
     const res = await request(app).post("/api/auth/login").send({ email: "", password: "" }).expect(422);
     expect(res.body.error.fields).toHaveProperty("email");
     expect(res.body.error.fields).toHaveProperty("password");
+  });
+
+  it("rejects the old session token if it is replayed after logout", async () => {
+    const res = await signup().expect(201);
+    const cookie = String(res.headers["set-cookie"]).split(";")[0] ?? "";
+    await request(app).get("/api/auth/me").set("Cookie", cookie).expect(200);
+    await request(app).post("/api/auth/logout").set("Cookie", cookie).expect(204);
+    await request(app).get("/api/auth/me").set("Cookie", cookie).expect(401);
   });
 
   it("revokes the session on logout", async () => {

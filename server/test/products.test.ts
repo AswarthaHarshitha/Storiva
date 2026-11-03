@@ -48,6 +48,22 @@ describe("creating products", () => {
     expect(res.body.error.fields.sku).toBeDefined();
   });
 
+  it("accepts exactly one of several concurrent creates with the same SKU", async () => {
+    const results = await Promise.all(["DUP-1", "dup-1", "Dup-1", "DUP-1"].map((sku) => create({ sku })));
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409, 409, 409]);
+    expect(await prisma.product.count()).toBe(1);
+  });
+
+  it("stores the largest supported price exactly", async () => {
+    const res = await create({ sellingPrice: "9999999999.99", costPrice: "0.01" }).expect(201);
+    expect(res.body.data).toMatchObject({ sellingPrice: "9999999999.99", costPrice: "0.01" });
+  });
+
+  it("accepts a threshold of zero", async () => {
+    const res = await create({ lowStockThreshold: 0, quantityOnHand: 0 }).expect(201);
+    expect(res.body.data).toMatchObject({ lowStockThreshold: 0, effectiveThreshold: 0, isLowStock: true });
+  });
+
   it.each([
     [{ name: "" }, "name"],
     [{ sku: "" }, "sku"],
@@ -60,6 +76,9 @@ describe("creating products", () => {
     [{ sellingPrice: "1.999" }, "sellingPrice"],
     [{ sellingPrice: "abc" }, "sellingPrice"],
     [{ lowStockThreshold: -2 }, "lowStockThreshold"],
+    [{ lowStockThreshold: 2.5 }, "lowStockThreshold"],
+    [{ sellingPrice: "10000000000" }, "sellingPrice"],
+    [{ quantityOnHand: 1_000_000_001 }, "quantityOnHand"],
   ])("rejects %j", async (overrides, field) => {
     const res = await create(overrides).expect(422);
     expect(res.body.error.fields).toHaveProperty(field);
