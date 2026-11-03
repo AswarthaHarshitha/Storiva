@@ -1,0 +1,68 @@
+# Requirements traceability
+
+Source documents: *Phase 1 – 6-Hour MVP PRD* (written for the working name "StockFlow"; the product
+ships as Storiva) and the *Technical Assessment Instructions*.
+
+A requirement is marked **Done** only when it has been exercised end to end, not when its screen
+exists. Two kinds of verification are referenced:
+
+- **API tests**: `server/test/*.test.ts`, run with `npm test` against PostgreSQL.
+- **Browser walkthrough**: a scripted run of every flow below in Chromium (desktop and phone
+  sizes) against the production build (`NODE_ENV=production`, compiled server serving the built
+  web app), checking for console errors. Run locally on 3 November 2026; it will be repeated
+  against the live deployment.
+
+Paths: `S/` is `server/src/`, `W/` is `web/src/`.
+
+## Functional requirements (PRD §3)
+
+| ID | Requirement | Status | Backend | Frontend | Tests | Verification |
+| --- | --- | --- | --- | --- | --- | --- |
+| FR-1.1 | Sign up with email, password, confirm password and organization name | Done | `S/services/authService.ts` `signUp`, `S/validation/auth.ts` | `W/pages/SignupPage.tsx` | auth: signup creates user + org; validates every field; confirmation must match; duplicate email (any case) → 409 | Browser: empty form errors, mismatched confirmation, successful signup |
+| FR-1.2 | Email and password login with basic validation | Done | `verifyCredentials`, `S/controllers/authController.ts` | `W/pages/LoginPage.tsx` | auth: valid login; wrong password and unknown email give identical 401; validation 422 | Browser: wrong password message, then successful login |
+| FR-1.3 | Logout | Done | `logout` revokes the session row | `W/components/AppLayout.tsx` | auth: session revoked on logout | Browser: logout, then protected page redirects to login |
+| FR-1.4 | Passwords hashed (bcrypt) | Done | bcrypt cost 12 in `authService.ts` | | auth: stored hash is bcrypt `$2…$12$`, not the password | |
+| FR-1.5 | Protected routes | Done | `S/middleware/requireAuth.ts` on every data route | `W/App.tsx` redirects to `/login`; 401 handler in `W/main.tsx` | auth: all 10 protected endpoints return 401 without a session; forged and expired cookies rejected | Browser: `/products` and `/settings` redirect when logged out |
+| FR-2.1 | Organization created on signup and linked to the user | Done | Org and user created in one transaction | Org name shown in navigation | auth: user's `organizationId` matches the new org | Browser: org name visible after signup |
+| FR-2.2 | All data scoped by organization; no cross-tenant access | Done | Every query in `S/services/productService.ts`, `dashboardService.ts`, `settingsService.ts` filters by the session's organization; other orgs' products return 404 | | tenantIsolation: A cannot list, search, read, update, adjust or delete B's product; B's row unchanged; forged `organizationId` ignored; dashboards and settings separate | Browser: second organization starts empty, gets "Product not found" and 404s for the first org's product, which stays intact |
+| FR-3 | Product model: name, SKU (unique per org), description, quantity, cost/selling price, low-stock threshold, timestamps | Done | `server/prisma/schema.prisma`; case-insensitive unique index and CHECK constraints in the migration | `W/api/types.ts` | products: all fields stored; prices exact to the cent; empty optionals become null | |
+| FR-4.1 | Create product with validation | Done | `createProduct`, `S/validation/product.ts` | `W/pages/ProductFormPage.tsx` | products: 11 invalid inputs rejected with field errors; duplicate SKU (any case) → 409; same SKU allowed in another org | Browser: negative quantity and 3-decimal price rejected inline; duplicate SKU shown on the SKU field |
+| FR-4.2 | Product list: name, SKU, quantity, low-stock indicator, selling price | Done | `listProducts` returns `effectiveThreshold` and `isLowStock` | `W/pages/ProductsPage.tsx` table and phone list | products: sorted list with low-stock flags | Browser: out / low (default) / low (own threshold) / in stock badges |
+| FR-4.3 | Search by name or SKU | Done | `?q=` case-insensitive match on name or SKU | Debounced search field, result count, no-match state | products: name search, SKU search, no match | Browser: search by name, by SKU, no match, clear |
+| FR-4.4 | Edit any field, including quantity | Done | `updateProduct` | Edit form | products: all fields updated; keep own SKU but not take another's; invalid quantity leaves row unchanged | Browser: quantity edit reflected in list and status |
+| FR-4.5 | Delete with a confirmation dialog | Done | `deleteProduct` (hard delete, allowed by PRD) | `W/products/DeleteProductDialog.tsx` from list and edit page | products: delete then 404 | Browser: cancel keeps the product; confirm deletes it |
+| FR-5.1 | Quantity editable in the product form | Done | `updateProduct` | Edit form | see FR-4.4 | see FR-4.4 |
+| FR-5.2 | Optional quick "adjust stock" (+/- N with a note) | Done | `adjustStock`: one conditional UPDATE, never below zero | `W/products/AdjustStockDialog.tsx` | products: add/remove with note; below-zero rejected; 15 concurrent −1 on 10 units → exactly 10 succeed; zero/fractional rejected | Browser: over-removal blocked, valid removal applied, note shown on edit page |
+| FR-5.3 | Store last updated by and timestamp (recommended) | Done | `last_updated_by_id`, `updated_at` | Edit page header | products: `lastUpdatedBy` set on create and adjust | Browser: "Last updated … by <email>" |
+| FR-6.1 | Land on the dashboard after login | Done | | `W/App.tsx`, `LoginPage` redirect | | Browser: signup and login land on dashboard (or the page originally requested) |
+| FR-6.2 | Total products and total quantity | Done | `S/services/dashboardService.ts` aggregate | `W/pages/DashboardPage.tsx` summary | dashboard: empty org is all zeros; totals match stored rows; update immediately after adjust and delete | Browser: 4 products / 55 units matched the data entered |
+| FR-6.3 | Low-stock items (quantity ≤ threshold, default when empty) with name, SKU, quantity, threshold | Done | SQL `quantity_on_hand <= COALESCE(product, org default)` | Low-stock table, "(default)" marker | dashboard: at-threshold included, above excluded, own vs default threshold, zero threshold, ordering | Browser: 3 low-stock rows, lowest first |
+| FR-7 | Settings: organization default low-stock threshold, persisted and used everywhere | Done | `S/services/settingsService.ts` | `W/pages/SettingsPage.tsx` | dashboard: default 5; update persists and changes dashboard and product flags; invalid values rejected | Browser: −1 rejected; saved value survives reload; dashboard low-stock count changes accordingly |
+
+## Non-functional requirements (PRD §3.5, assessment brief)
+
+| ID | Requirement | Status | Implementation | Verification |
+| --- | --- | --- | --- | --- |
+| NFR-1 | Session or JWT authentication | Done | Server-side sessions; `HttpOnly`, `SameSite=Lax`, `Secure` in production; token stored hashed | API tests; production cookie attributes checked on the built server |
+| NFR-2 | Validation on client and server | Done | zod on both sides; the server is authoritative | API tests (422s); web unit tests for client rules |
+| NFR-3 | Database constraints and indexes | Done | Unique `(organization_id, lower(sku))`, CHECK constraints, foreign keys, indexes | Constraint behaviour covered by API tests |
+| NFR-4 | Decimal-safe prices | Done | `DECIMAL(12,2)`; strings in the API | API test: `0.10` and `19.99` stored exactly |
+| NFR-5 | Desktop first, usable on tablet and phone | Done | Sidebar ↔ bottom navigation; table ↔ stacked list; single-column forms | Browser at 390 px: no horizontal overflow |
+| NFR-6 | No secrets in the repository | Done | Only `.env.example` is committed; `.env*` ignored | `git ls-files` reviewed |
+| NFR-7 | No fabricated data | Done | No seed data or demo accounts; new organizations start empty | Browser: new organization's dashboard and product list are empty |
+| NFR-8 | TypeScript strict, lint, tests and build pass | Done | `strict` in both workspaces; ESLint (type-checked rules on the server) | `npm run typecheck`, `npm run lint`, `npm test`, `npm run build` |
+
+## Assessment requirements
+
+| ID | Requirement | Status | Notes |
+| --- | --- | --- | --- |
+| A-1 | Public GitHub repository | Done | https://github.com/AswarthaHarshitha/Storiva |
+| A-2 | Regular, meaningful commits | Done | Commits pushed as each stage was completed |
+| A-3 | Deployed on a server | Pending | `render.yaml` prepared; deployment requires the owner's Render and Neon accounts |
+| A-4 | Live link shared and verified | Pending | The browser walkthrough will be repeated against the live URL |
+
+## Out of scope (PRD §4)
+
+Not implemented, by design: multi-warehouse, variants, categories, images, channel integrations,
+orders and reservations, purchase orders and suppliers, email notifications, CSV import, external
+API access, roles and invitations, audit logs and movement history, billing.
