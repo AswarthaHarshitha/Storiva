@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter Tight Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-canvas: #f6f2ec;
+  --color-surface: #fffdfa;
+  --color-sunken: #efe9e0;
+  --color-line: #e3dbcf;
+  --color-line-strong: #cbbfae;
+
+  --color-ink: #26221e;
+  --color-ink-muted: #665d53;
+  --color-ink-faint: #8a8075;
+
+  --color-accent: #a94b24;
+  --color-accent-hover: #8f3e1c;
+  --color-accent-soft: #f5e4d9;
+
+  --color-warn: #8a5a0f;
+  --color-warn-soft: #f8ecd3;
+  --color-danger: #a1342a;
+  --color-danger-soft: #f7e0dc;
+  --color-ok: #46623a;
+  --color-ok-soft: #e5ecdb;
+}
+
+@layer base {
+  html {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  dialog::backdrop {
+    background: rgb(38 34 30 / 0.35);
+  }
+}
