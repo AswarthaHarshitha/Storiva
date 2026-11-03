@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { api } from "../api/client";
 import type {
   BarcodeLookup,
+  CatalogueLookup,
   Dashboard,
   Product,
   ProductPayload,
@@ -125,5 +126,18 @@ export function useRemoveBarcode() {
     mutationFn: ({ productId, barcodeId }: { productId: string; barcodeId: string }) =>
       api.delete(`/products/${productId}/barcodes/${barcodeId}`),
     onSuccess: refresh,
+  });
+}
+
+/** Checks the organization's inventory, then public catalogues, for a scanned code. */
+export function useCatalogueLookup(code: string, format?: string) {
+  return useQuery({
+    queryKey: ["catalogue", code, format],
+    queryFn: () =>
+      api.get<CatalogueLookup>(
+        `/catalogue/lookup?code=${encodeURIComponent(code)}${format ? `&format=${encodeURIComponent(format)}` : ""}`,
+      ),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
   });
 }

@@ -17,6 +17,11 @@ export interface Product {
   isLowStock: boolean;
   lastAdjustmentNote: string | null;
   lastUpdatedBy: string | null;
+  brand: string | null;
+  manufacturer: string | null;
+  category: string | null;
+  imageUrl: string | null;
+  catalogue: CatalogueSource | null;
   barcodes: ProductBarcode[];
   createdAt: string;
   updatedAt: string;
@@ -36,7 +41,18 @@ export interface ProductPayload {
   costPrice: string | null;
   sellingPrice: string | null;
   lowStockThreshold: number | null;
+  brand: string | null;
+  manufacturer: string | null;
+  category: string | null;
+  imageUrl?: string | null;
+  catalogue?: CatalogueSource | null;
   barcodes?: string[];
+}
+
+export interface CatalogueSource {
+  provider: string;
+  sourceName: string;
+  retrievedAt: string;
 }
 
 export interface LowStockItem {
@@ -95,4 +111,28 @@ export interface StockOperationResult {
   movement: StockMovement;
   product: Product;
   replayed: boolean;
+}
+
+export interface CatalogueMatch {
+  provider: string;
+  providerName: string;
+  sourceName: string;
+  sourceUrl: string;
+  licence: { name: string; url: string } | null;
+  retrievedAt: string;
+  name: string | null;
+  brand: string | null;
+  description: string | null;
+  manufacturer: string | null;
+  category: string | null;
+  imageUrl: string | null;
+}
+
+export interface CatalogueLookup {
+  code: string;
+  kind: "gtin" | "other";
+  existing: Product | null;
+  checkedCatalogues: boolean;
+  matches: CatalogueMatch[];
+  unavailable: { provider: string; providerName: string }[];
 }

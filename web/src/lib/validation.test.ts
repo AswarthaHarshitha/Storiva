@@ -3,6 +3,9 @@ import { productFormSchema, signupSchema, thresholdSchema, toProductPayload, val
 
 const product = (overrides: Partial<ProductFormValues> = {}): ProductFormValues => ({
   barcode: "",
+  brand: "",
+  manufacturer: "",
+  category: "",
   name: "Stoneware mug",
   sku: "MUG-01",
   description: "",
@@ -43,6 +46,9 @@ describe("product form", () => {
       lowStockThreshold: 4,
       costPrice: null,
       sellingPrice: "9.5",
+      brand: null,
+      manufacturer: null,
+      category: null,
     });
   });
 

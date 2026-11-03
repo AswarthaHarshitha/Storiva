@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { CircleCheck, PackageSearch, Plus, Repeat } from "lucide-react";
 import { errorMessage } from "../api/client";
-import type { BarcodeLookup, StockMovementSource, StockOperationRequest, StockOperationResult } from "../api/types";
+import type { BarcodeLookup, Product, StockMovementSource, StockOperationRequest, StockOperationResult } from "../api/types";
 import { Alert } from "../components/Alert";
 import { Button } from "../components/Button";
 import { LoadingState } from "../components/LoadingState";
@@ -16,6 +16,7 @@ import { CameraPanel } from "../scanner/CameraPanel";
 import { scanFeedback } from "../scanner/feedback";
 import { LinkBarcode } from "../scanner/LinkBarcode";
 import { isScanMode, scanModes, type ScanMode } from "../scanner/modes";
+import { QuickAdd } from "../scanner/QuickAdd";
 import { StockActionForm } from "../scanner/StockActionForm";
 import { useCameraScanner } from "../scanner/useCameraScanner";
 
@@ -24,10 +25,11 @@ interface CurrentScan {
   code: string;
   format?: string;
   source: StockMovementSource;
-  state: "loading" | "ready" | "error" | "done";
+  state: "loading" | "ready" | "error" | "done" | "added";
   lookup?: BarcodeLookup;
   error?: string;
   result?: StockOperationResult;
+  added?: Product;
 }
 
 interface HistoryEntry {
@@ -47,7 +49,6 @@ const outcomeOf = (result: StockOperationResult) => {
 
 export function ScanPage() {
   useDocumentTitle("Scan");
-  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const mode: ScanMode = isScanMode(params.get("mode")) ? (params.get("mode") as ScanMode) : "find";
   const [continuous, setContinuous] = useState(false);
@@ -219,7 +220,16 @@ export function ScanPage() {
                 }}
                 onStale={() => void refreshCurrent()}
                 onLinked={() => void refreshCurrent()}
-                onCreate={() => navigate(`/products/new?barcode=${encodeURIComponent(current.code)}`)}
+                onAdded={(product) => {
+                  setCurrent({ ...current, state: "added", added: product });
+                  setHistory((list) =>
+                    list.map((entry) =>
+                      entry.id === current.id
+                        ? { ...entry, product: product.name, outcome: `Added with ${pluralize(product.quantityOnHand, "unit")}` }
+                        : entry,
+                    ),
+                  );
+                }}
                 onNext={scanNext}
                 continuous={runContinuously}
               />
@@ -262,12 +272,14 @@ interface ScanResultViewProps {
   onDone: (result: StockOperationResult) => void;
   onStale: () => void;
   onLinked: () => void;
-  onCreate: () => void;
+  onAdded: (product: Product) => void;
   onNext: () => void;
 }
 
-function ScanResultView({ scan, mode, continuous, onDone, onStale, onLinked, onCreate, onNext }: ScanResultViewProps) {
+function ScanResultView({ scan, mode, continuous, onDone, onStale, onLinked, onAdded, onNext }: ScanResultViewProps) {
   const [linking, setLinking] = useState(false);
+  // In "Add new" the registration form opens straight away; in other modes the user chooses.
+  const [adding, setAdding] = useState(mode === "add");
   const product = scan.lookup?.product ?? null;
   const next = (
     <Button variant={scan.state === "done" ? "primary" : "secondary"} onClick={onNext} className="w-full" autoFocus={scan.state === "done"}>
@@ -287,7 +299,37 @@ function ScanResultView({ scan, mode, continuous, onDone, onStale, onLinked, onC
     );
   }
 
+  if (scan.state === "added" && scan.added) {
+    return (
+      <div className="space-y-4">
+        <p role="status" className="flex items-center gap-2 rounded-md bg-ok-soft px-3 py-2 text-sm text-ok">
+          <CircleCheck className="size-4 shrink-0" aria-hidden />
+          Added {scan.added.name} with {pluralize(scan.added.quantityOnHand, "unit")}.
+        </p>
+        <Link
+          to={`/products/${scan.added.id}/edit`}
+          className="flex h-9 w-full items-center justify-center rounded-md border border-line-strong bg-surface text-sm font-medium hover:bg-sunken"
+        >
+          Open product
+        </Link>
+        <Button onClick={onNext} className="w-full" autoFocus>
+          Scan next
+        </Button>
+      </div>
+    );
+  }
+
   if (!product) {
+    if (adding) {
+      return (
+        <div className="space-y-4">
+          <QuickAdd code={scan.code} format={scan.format} onSaved={onAdded} />
+          <Button variant="ghost" onClick={onNext} className="w-full">
+            Cancel
+          </Button>
+        </div>
+      );
+    }
     return (
       <div className="space-y-4">
         <div>
@@ -296,9 +338,9 @@ function ScanResultView({ scan, mode, continuous, onDone, onStale, onLinked, onC
             No product uses <span className="font-mono text-ink">{scan.code}</span> yet.
           </p>
         </div>
-        <Button onClick={onCreate} className="w-full">
+        <Button onClick={() => setAdding(true)} className="w-full">
           <Plus className="size-4" aria-hidden />
-          Create a product with this barcode
+          Add as a new product
         </Button>
         {linking ? (
           <LinkBarcode code={scan.code} format={scan.format} onLinked={onLinked} />
