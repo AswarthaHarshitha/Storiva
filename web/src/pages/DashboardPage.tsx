@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
 import type { Dashboard, LowStockItem } from "../api/types";
@@ -20,23 +21,47 @@ const addProduct = (
 export function DashboardPage() {
   useDocumentTitle("Dashboard");
   const dashboard = useDashboard();
+  const header = (description: string, actions?: ReactNode) => (
+    <PageHeader title="Dashboard" description={description} actions={actions} />
+  );
 
-  if (dashboard.isPending) return <LoadingState label="Loading your inventory…" />;
-  if (dashboard.isError) return <QueryError error={dashboard.error} onRetry={() => void dashboard.refetch()} />;
+  if (dashboard.isPending) {
+    return (
+      <>
+        {header(`${greeting()}.`)}
+        <LoadingState label="Loading your inventory…" />
+      </>
+    );
+  }
+  if (dashboard.isError) {
+    return (
+      <>
+        {header(`${greeting()}.`)}
+        <QueryError error={dashboard.error} onRetry={() => void dashboard.refetch()} />
+      </>
+    );
+  }
 
   const data = dashboard.data;
-  if (data.totalProducts === 0) return <FirstRun defaultThreshold={data.defaultLowStockThreshold} />;
+  if (data.totalProducts === 0) {
+    return (
+      <>
+        {header(`${greeting()}. Let's get your inventory set up.`)}
+        <FirstRun defaultThreshold={data.defaultLowStockThreshold} />
+      </>
+    );
+  }
 
   const status =
     data.lowStockCount === 0
       ? "Every product is above its low-stock threshold."
-      : `${pluralize(data.lowStockCount, "product")} ${data.lowStockCount === 1 ? "is" : "are"} at or below the low-stock threshold.`;
+      : `${pluralize(data.lowStockCount, "product")} ${data.lowStockCount === 1 ? "is" : "are"} running low.`;
 
   return (
     <>
-      <PageHeader title="Dashboard" description={`${greeting()}. ${status}`} actions={addProduct} />
+      {header(`${greeting()}. ${status}`, addProduct)}
       <Summary data={data} />
-      <LowStockSection items={data.lowStockItems} />
+      <LowStockSection items={data.lowStockItems} defaultThreshold={data.defaultLowStockThreshold} />
     </>
   );
 }
@@ -44,7 +69,6 @@ export function DashboardPage() {
 function FirstRun({ defaultThreshold }: { defaultThreshold: number }) {
   return (
     <>
-      <PageHeader title="Dashboard" description={`${greeting()}. Let's get your inventory set up.`} />
       <section className="rounded-lg border border-line bg-surface px-6 py-10 sm:px-10 sm:py-12">
         <h2 className="text-lg font-semibold tracking-tight">Add your first product</h2>
         <p className="mt-2 max-w-prose text-sm leading-relaxed text-ink-muted">
@@ -72,14 +96,9 @@ function FirstRun({ defaultThreshold }: { defaultThreshold: number }) {
 
 function Summary({ data }: { data: Dashboard }) {
   const cards = [
-    { label: "Products", value: data.totalProducts, note: <Link to="/products" className="hover:text-ink hover:underline">View all products</Link> },
-    { label: "Units on hand", value: data.totalQuantity, note: "Across every product" },
-    {
-      label: "Low stock",
-      value: data.lowStockCount,
-      note: `Default threshold: ${pluralize(data.defaultLowStockThreshold, "unit")}`,
-      highlight: data.lowStockCount > 0,
-    },
+    { label: "Products", value: data.totalProducts, note: "In your inventory" },
+    { label: "Units on hand", value: data.totalQuantity, note: "Across all products" },
+    { label: "Low stock", value: data.lowStockCount, note: "At or below their threshold", highlight: data.lowStockCount > 0 },
   ];
 
   return (
@@ -106,14 +125,21 @@ function ThresholdCell({ item }: { item: LowStockItem }) {
   );
 }
 
-function LowStockSection({ items }: { items: LowStockItem[] }) {
+function LowStockSection({ items, defaultThreshold }: { items: LowStockItem[]; defaultThreshold: number }) {
   return (
     <section aria-labelledby="low-stock-heading">
       <div className="mb-3">
         <h2 id="low-stock-heading" className="text-base font-semibold">
           Low stock items
         </h2>
-        <p className="text-sm text-ink-muted">Products at or below their threshold, lowest quantity first.</p>
+        <p className="text-sm text-ink-muted">
+          Lowest quantity first. Products without their own threshold use your default of{" "}
+          {pluralize(defaultThreshold, "unit")} (
+          <Link to="/settings" className="font-medium text-accent hover:underline">
+            change
+          </Link>
+          ).
+        </p>
       </div>
 
       {items.length === 0 ? (
@@ -123,6 +149,7 @@ function LowStockSection({ items }: { items: LowStockItem[] }) {
       ) : (
         <div className="overflow-hidden rounded-lg border border-line bg-surface">
           <table className="w-full text-sm">
+            <caption className="sr-only">Low stock items, lowest quantity first</caption>
             <thead className="border-b border-line bg-sunken/60 text-left text-xs font-medium text-ink-muted">
               <tr>
                 <th scope="col" className="px-4 py-2.5 font-medium">Name</th>

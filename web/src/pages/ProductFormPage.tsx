@@ -49,7 +49,7 @@ export function NewProductPage() {
   return (
     <>
       {backLink}
-      <PageHeader title="Add product" description="Fields marked * are required." />
+      <PageHeader title="Add product" description="Add an item you stock. You can change any of this later." />
       <ProductForm initialValues={emptyValues} />
     </>
   );
@@ -60,7 +60,14 @@ export function EditProductPage() {
   const product = useProduct(id);
   useDocumentTitle(product.data ? `Edit ${product.data.name}` : "Edit product");
 
-  if (product.isPending) return <LoadingState label="Loading product…" />;
+  if (product.isPending) {
+    return (
+      <>
+        {backLink}
+        <LoadingState label="Loading product…" />
+      </>
+    );
+  }
   if (product.isError) {
     if (product.error instanceof ApiError && product.error.status === 404) {
       return (
@@ -73,7 +80,12 @@ export function EditProductPage() {
         </>
       );
     }
-    return <QueryError error={product.error} onRetry={() => void product.refetch()} />;
+    return (
+      <>
+        {backLink}
+        <QueryError error={product.error} onRetry={() => void product.refetch()} />
+      </>
+    );
   }
 
   return (
@@ -116,6 +128,7 @@ function ProductForm({ product, initialValues }: { product?: Product; initialVal
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const submit = form.handleSubmit((values, showServerErrors) => {
+    if (save.isPending) return;
     save.mutate(toProductPayload(values), {
       onSuccess: (saved) => {
         toast(product ? `Saved changes to ${saved.name}.` : `${saved.name} was added.`);
@@ -140,6 +153,9 @@ function ProductForm({ product, initialValues }: { product?: Product; initialVal
 
   return (
     <form onSubmit={submit} noValidate>
+      <p className="mb-6 text-sm text-ink-muted">
+        Fields marked <span className="text-accent">*</span> are required.
+      </p>
       {failure && (
         <div className="mb-6">
           <Alert>{errorMessage(failure)}</Alert>

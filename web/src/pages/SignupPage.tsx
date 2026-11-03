@@ -17,6 +17,7 @@ export function SignupPage() {
   const form = useForm(signupSchema, { organizationName: "", email: "", password: "", confirmPassword: "" });
 
   const submit = form.handleSubmit((values, showServerErrors) => {
+    if (signup.isPending) return;
     signup.mutate(values, {
       onSuccess: () => void navigate("/", { replace: true }),
       onError: (error) => {

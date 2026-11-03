@@ -44,6 +44,7 @@ function ThresholdForm({ settings }: { settings: Settings }) {
   const unchanged = form.values.defaultLowStockThreshold.trim() === saved;
 
   const submit = form.handleSubmit((values, showServerErrors) => {
+    if (save.isPending) return;
     save.mutate(
       { defaultLowStockThreshold: Number(values.defaultLowStockThreshold) },
       {
@@ -60,7 +61,7 @@ function ThresholdForm({ settings }: { settings: Settings }) {
       <h2 className="text-sm font-semibold">Low stock</h2>
       <p className="mt-1 mb-4 max-w-prose text-sm text-ink-muted">
         A product is low on stock when its quantity is at or below its threshold. Products without a threshold of their
-        own use this default.
+        own use this default. Changes apply to the dashboard and product list straight away.
       </p>
       {save.isError && !(save.error instanceof ApiError && save.error.status === 422) && (
         <div className="mb-4">

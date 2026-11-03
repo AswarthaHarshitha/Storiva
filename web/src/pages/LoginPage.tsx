@@ -21,6 +21,7 @@ export function LoginPage() {
   const from = (location.state as { from?: string } | null)?.from ?? "/";
 
   const submit = form.handleSubmit((values, showServerErrors) => {
+    if (login.isPending) return;
     login.mutate(values, {
       onSuccess: () => void navigate(from, { replace: true }),
       onError: (error) => {

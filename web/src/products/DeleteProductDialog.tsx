@@ -23,7 +23,7 @@ export function DeleteProductDialog({ product, onClose, onDeleted }: DeleteProdu
   };
 
   const confirm = () => {
-    if (!product) return;
+    if (!product || remove.isPending) return;
     remove.mutate(product.id, {
       onSuccess: () => {
         toast(`${product.name} was deleted.`);
@@ -35,18 +35,23 @@ export function DeleteProductDialog({ product, onClose, onDeleted }: DeleteProdu
   };
 
   return (
-    <Dialog open={product !== null} onClose={close} title={product ? `Delete ${product.name}?` : ""}>
+    <Dialog open={product !== null} onClose={close} title="Delete this product?">
       {product && (
-        <div className="mt-2 space-y-4">
+        <div className="mt-3 space-y-4">
+          <div className="rounded-md border border-line bg-canvas px-4 py-3">
+            <p className="font-medium text-ink">{product.name}</p>
+            <p className="mt-0.5 text-sm text-ink-muted">
+              <span className="font-mono text-xs">{product.sku}</span> · {pluralize(product.quantityOnHand, "unit")} on hand
+            </p>
+          </div>
           <p className="text-sm leading-relaxed text-ink-muted">
-            This permanently removes <span className="font-medium text-ink">{product.name}</span> (SKU{" "}
-            <span className="font-mono text-xs">{product.sku}</span>) and its stock count of{" "}
-            {pluralize(product.quantityOnHand, "unit")}. It can't be undone.
+            {product.quantityOnHand > 0 && <>Its stock count of {pluralize(product.quantityOnHand, "unit")} will be lost. </>}
+            Deleting is permanent and can't be undone.
           </p>
           {remove.isError && <Alert>{errorMessage(remove.error)}</Alert>}
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={close} disabled={remove.isPending} autoFocus>
-              Cancel
+              Keep product
             </Button>
             <Button variant="danger" onClick={confirm} loading={remove.isPending} loadingLabel="Deleting…">
               Delete product
