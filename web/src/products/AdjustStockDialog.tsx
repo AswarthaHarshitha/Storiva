@@ -8,8 +8,7 @@ import { TextField } from "../components/TextField";
 import { useToast } from "../components/Toast";
 import { useAdjustStock } from "../hooks/useInventory";
 import { formatCount, pluralize } from "../lib/format";
-
-type Direction = "add" | "remove";
+import { planAdjustment, type Direction } from "./stockAdjustment";
 
 export function AdjustStockDialog({ product, onClose }: { product: Product | null; onClose: () => void }) {
   return (
@@ -23,43 +22,38 @@ function AdjustStockForm({ product, onDone }: { product: Product; onDone: () => 
   const [direction, setDirection] = useState<Direction>("add");
   const [units, setUnits] = useState("");
   const [note, setNote] = useState("");
-  const [error, setError] = useState<string>();
+  const [showError, setShowError] = useState(false);
   const adjust = useAdjustStock();
   const toast = useToast();
 
-  const amount = /^\d+$/.test(units.trim()) ? Number(units) : null;
-  const delta = amount === null ? null : direction === "add" ? amount : -amount;
-  const resulting = delta === null ? null : product.quantityOnHand + delta;
-
-  const check = (): string | undefined => {
-    if (units.trim() === "") return "Enter how many units.";
-    if (amount === null) return "Enter a whole number of units.";
-    if (amount === 0) return "Enter at least 1 unit.";
-    if (resulting !== null && resulting < 0) return `Only ${pluralize(product.quantityOnHand, "unit")} on hand.`;
-    return undefined;
-  };
+  const plan = planAdjustment(product.quantityOnHand, direction, units);
+  // Going below zero is worth flagging as soon as it happens; other problems wait for submit.
+  const fieldError = showError || (plan.resulting !== null && plan.resulting < 0) ? plan.error : null;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const problem = check();
-    setError(problem);
-    if (problem || delta === null) return;
+    if (adjust.isPending) return;
+    if (plan.error || plan.delta === null) {
+      setShowError(true);
+      return;
+    }
     adjust.mutate(
-      { id: product.id, delta, note: note.trim() || null },
+      { id: product.id, delta: plan.delta, note: note.trim() || null },
       {
         onSuccess: (updated) => {
-          toast(`${updated.name} now has ${pluralize(updated.quantityOnHand, "unit")}.`);
+          toast(`${updated.name}: ${formatCount(product.quantityOnHand)} → ${pluralize(updated.quantityOnHand, "unit")}.`);
           onDone();
         },
-        onError: (failure) => setError(errorMessage(failure)),
       },
     );
   };
 
+  const amount = plan.delta === null ? null : Math.abs(plan.delta);
+
   return (
     <form onSubmit={submit} noValidate className="mt-1 space-y-4">
       <p className="text-sm text-ink-muted">
-        <span className="font-medium text-ink">{product.name}</span> · {pluralize(product.quantityOnHand, "unit")} on hand
+        <span className="font-medium text-ink">{product.name}</span> · <span className="font-mono text-xs">{product.sku}</span>
       </p>
 
       <fieldset>
@@ -69,10 +63,17 @@ function AdjustStockForm({ product, onDone }: { product: Product; onDone: () => 
             <label
               key={option}
               className={`cursor-pointer rounded px-3 py-1.5 text-center text-sm font-medium has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent ${
-                direction === option ? "bg-surface text-ink shadow-sm" : "text-ink-muted"
+                direction === option ? "bg-surface text-ink shadow-sm" : "text-ink-muted hover:text-ink"
               }`}
             >
-              <input type="radio" name="direction" value={option} checked={direction === option} onChange={() => setDirection(option)} className="sr-only" />
+              <input
+                type="radio"
+                name="direction"
+                value={option}
+                checked={direction === option}
+                onChange={() => setDirection(option)}
+                className="sr-only"
+              />
               {option === "add" ? "Add units" : "Remove units"}
             </label>
           ))}
@@ -89,21 +90,49 @@ function AdjustStockForm({ product, onDone }: { product: Product; onDone: () => 
         value={units}
         onValueChange={(value) => {
           setUnits(value);
-          if (error) setError(undefined);
+          setShowError(false);
         }}
-        error={error}
-        hint={resulting !== null && resulting >= 0 && amount ? `New quantity: ${formatCount(resulting)}` : undefined}
+        error={fieldError ?? undefined}
       />
-      <TextField label="Note" name="note" maxLength={200} value={note} onValueChange={setNote} hint="Optional, e.g. “Delivery from supplier”." />
 
-      {adjust.isError && !error && <Alert>{errorMessage(adjust.error)}</Alert>}
+      <dl className="grid grid-cols-3 divide-x divide-line rounded-md border border-line text-center" aria-live="polite">
+        <div className="px-2 py-2">
+          <dt className="text-xs text-ink-muted">On hand</dt>
+          <dd className="font-medium tabular-nums">{formatCount(product.quantityOnHand)}</dd>
+        </div>
+        <div className="px-2 py-2">
+          <dt className="text-xs text-ink-muted">Change</dt>
+          <dd className={`font-medium tabular-nums ${plan.delta === null ? "text-ink-faint" : plan.delta > 0 ? "text-ok" : "text-danger"}`}>
+            {plan.delta === null ? "—" : `${plan.delta > 0 ? "+" : "−"}${formatCount(Math.abs(plan.delta))}`}
+          </dd>
+        </div>
+        <div className="px-2 py-2">
+          <dt className="text-xs text-ink-muted">New quantity</dt>
+          <dd className={`font-semibold tabular-nums ${plan.resulting !== null && plan.resulting < 0 ? "text-danger" : ""}`}>
+            {plan.resulting === null ? "—" : formatCount(plan.resulting)}
+          </dd>
+        </div>
+      </dl>
+
+      <TextField
+        label="Note"
+        name="note"
+        maxLength={200}
+        value={note}
+        onValueChange={setNote}
+        hint="Optional. Saved with the product as its latest stock note."
+      />
+
+      {adjust.isError && <Alert>{errorMessage(adjust.error)}</Alert>}
 
       <div className="flex justify-end gap-2 pt-1">
         <Button variant="secondary" onClick={onDone} disabled={adjust.isPending}>
           Cancel
         </Button>
         <Button type="submit" loading={adjust.isPending} loadingLabel="Saving…">
-          Update stock
+          {amount === null || plan.error
+            ? "Update stock"
+            : `${direction === "add" ? "Add" : "Remove"} ${pluralize(amount, "unit")}`}
         </Button>
       </div>
     </form>
