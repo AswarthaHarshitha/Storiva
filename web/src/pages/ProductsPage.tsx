@@ -30,7 +30,7 @@ export function ProductsPage() {
     <>
       <PageHeader
         title="Products"
-        description={total === undefined ? " " : pluralize(total, "product")}
+        description={total === undefined ? undefined : pluralize(total, "product")}
         actions={
           <ButtonLink to="/products/new">
             <Plus className="size-4" aria-hidden />

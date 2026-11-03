@@ -15,7 +15,7 @@ const variants: Record<Variant, string> = {
   danger: "bg-danger text-white hover:bg-[#87291f]",
 };
 
-export const buttonClass = (variant: Variant = "primary", extra = "") => `${base} ${variants[variant]} ${extra}`;
+const buttonClass = (variant: Variant = "primary", extra = "") => `${base} ${variants[variant]} ${extra}`;
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
