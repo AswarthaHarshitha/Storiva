@@ -129,9 +129,16 @@ function LowStockSection({ items, defaultThreshold }: { items: LowStockItem[]; d
   return (
     <section aria-labelledby="low-stock-heading">
       <div className="mb-3">
-        <h2 id="low-stock-heading" className="text-base font-semibold">
-          Low stock items
-        </h2>
+        <div className="flex items-baseline justify-between gap-4">
+          <h2 id="low-stock-heading" className="text-base font-semibold">
+            Low stock items
+          </h2>
+          {items.length > 0 && (
+            <Link to="/products?status=low&sort=quantity-asc" className="shrink-0 text-sm font-medium text-accent hover:underline">
+              View in Products
+            </Link>
+          )}
+        </div>
         <p className="text-sm text-ink-muted">
           Lowest quantity first. Products without their own threshold use your default of{" "}
           {pluralize(defaultThreshold, "unit")} (
