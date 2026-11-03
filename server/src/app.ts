@@ -5,13 +5,16 @@ import express from "express";
 import helmet from "helmet";
 import { isProduction } from "./config/env.js";
 import { apiNotFound, errorHandler } from "./middleware/errorHandler.js";
-import { apiRouter } from "./routes/index.js";
+import type { CatalogueService } from "./catalogue/catalogueService.js";
+import { createConfiguredCatalogue } from "./catalogue/index.js";
+import { OPEN_FACTS_IMAGE_HOSTS } from "./catalogue/openFacts.js";
+import { createApiRouter } from "./routes/index.js";
 
 // The built web app, served by this same process in production. Same origin means the
 // session cookie needs no CORS or third-party-cookie allowances, so none are configured.
 const webDist = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
-export function createApp() {
+export function createApp({ catalogue = createConfiguredCatalogue() }: { catalogue?: CatalogueService } = {}) {
   const app = express();
   app.disable("x-powered-by");
   // The hosting proxy terminates TLS. The rate limiter's client address comes from
@@ -25,6 +28,8 @@ export function createApp() {
           // The barcode decoder is WebAssembly served from this origin; compiling it needs
           // 'wasm-unsafe-eval'. No other script sources are allowed.
           scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
+          // Product photos shown from the public catalogue's image servers.
+          imgSrc: ["'self'", "data:", ...OPEN_FACTS_IMAGE_HOSTS.map((host) => `https://${host}`)],
         },
       },
     }),
@@ -36,7 +41,7 @@ export function createApp() {
     res.set("Cache-Control", "no-store");
     next();
   });
-  app.use("/api", apiRouter);
+  app.use("/api", createApiRouter(catalogue));
   app.use("/api", apiNotFound);
 
   if (isProduction && existsSync(webDist)) {

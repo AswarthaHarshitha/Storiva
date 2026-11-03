@@ -1,5 +1,6 @@
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import { env } from "../config/env.js";
+import { authOf } from "./requireAuth.js";
 
 /**
  * The address a request is rate-limited by. Behind a CDN, Express's req.ip is only as good as
@@ -26,4 +27,16 @@ export const credentialLimiter = rateLimit({
   keyGenerator: (req) => clientAddress(req, env.CLIENT_IP_HEADER),
   skip: () => env.NODE_ENV === "test",
   message: { error: { code: "RATE_LIMITED", message: "Too many attempts. Please wait a few minutes and try again." } },
+});
+
+// Catalogue lookups reach external services; limit each organization so one account cannot use
+// up the shared provider budgets.
+export const catalogueLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  keyGenerator: (req) => authOf(req).organizationId,
+  skip: () => env.NODE_ENV === "test",
+  message: { error: { code: "RATE_LIMITED", message: "Too many catalogue lookups. Please wait a minute and try again." } },
 });

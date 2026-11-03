@@ -36,6 +36,12 @@ export interface ProductView {
   isLowStock: boolean;
   lastAdjustmentNote: string | null;
   lastUpdatedBy: string | null;
+  brand: string | null;
+  manufacturer: string | null;
+  category: string | null;
+  imageUrl: string | null;
+  /** Set when the product's details were first filled from a catalogue. */
+  catalogue: { provider: string; sourceName: string; retrievedAt: Date } | null;
   barcodes: ProductBarcodeView[];
   createdAt: Date;
   updatedAt: Date;
@@ -66,6 +72,18 @@ const toView = (product: ProductRow, defaultThreshold: number): ProductView => {
     isLowStock: product.quantityOnHand <= effectiveThreshold,
     lastAdjustmentNote: product.lastAdjustmentNote,
     lastUpdatedBy: product.lastUpdatedBy?.email ?? null,
+    brand: product.brand,
+    manufacturer: product.manufacturer,
+    category: product.category,
+    imageUrl: product.imageUrl,
+    catalogue:
+      product.catalogueProvider && product.catalogueRetrievedAt
+        ? {
+            provider: product.catalogueProvider,
+            sourceName: product.catalogueSourceName ?? product.catalogueProvider,
+            retrievedAt: product.catalogueRetrievedAt,
+          }
+        : null,
     barcodes: product.barcodes,
     createdAt: product.createdAt,
     updatedAt: product.updatedAt,
@@ -88,6 +106,10 @@ const toData = (input: ProductInput) => ({
   costPrice: input.costPrice === null ? null : new Prisma.Decimal(input.costPrice),
   sellingPrice: input.sellingPrice === null ? null : new Prisma.Decimal(input.sellingPrice),
   lowStockThreshold: input.lowStockThreshold,
+  brand: input.brand,
+  manufacturer: input.manufacturer,
+  category: input.category,
+  imageUrl: input.imageUrl,
 });
 
 export async function listProducts(organizationId: string, search?: string): Promise<ProductView[]> {
@@ -128,6 +150,9 @@ export async function createProduct(organizationId: string, userId: string, inpu
           ...toData(input),
           organizationId,
           lastUpdatedById: userId,
+          catalogueProvider: input.catalogue?.provider ?? null,
+          catalogueSourceName: input.catalogue?.sourceName ?? null,
+          catalogueRetrievedAt: input.catalogue ? new Date(input.catalogue.retrievedAt) : null,
           barcodes: {
             create: barcodes.map((b) => ({ organizationId, code: b.code, rawCode: b.raw, kind: b.kind, createdById: userId })),
           },

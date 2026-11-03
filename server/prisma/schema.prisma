@@ -57,23 +57,31 @@ model Session {
 // products_organization_id_sku_key expression index created in the migration SQL,
 // because Prisma cannot declare an index on lower(sku).
 model Product {
-  id                 String           @id @default(uuid()) @db.Uuid
-  organizationId     String           @map("organization_id") @db.Uuid
-  organization       Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  name               String           @db.VarChar(200)
-  sku                String           @db.VarChar(64)
-  description        String?          @db.VarChar(2000)
-  quantityOnHand     Int              @default(0) @map("quantity_on_hand")
-  costPrice          Decimal?         @map("cost_price") @db.Decimal(12, 2)
-  sellingPrice       Decimal?         @map("selling_price") @db.Decimal(12, 2)
-  lowStockThreshold  Int?             @map("low_stock_threshold")
-  lastAdjustmentNote String?          @map("last_adjustment_note") @db.VarChar(200)
-  lastUpdatedById    String?          @map("last_updated_by_id") @db.Uuid
-  lastUpdatedBy      User?            @relation("ProductLastUpdatedBy", fields: [lastUpdatedById], references: [id], onDelete: SetNull)
-  barcodes           ProductBarcode[]
-  stockMovements     StockMovement[]
-  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id                   String           @id @default(uuid()) @db.Uuid
+  organizationId       String           @map("organization_id") @db.Uuid
+  organization         Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name                 String           @db.VarChar(200)
+  sku                  String           @db.VarChar(64)
+  description          String?          @db.VarChar(2000)
+  quantityOnHand       Int              @default(0) @map("quantity_on_hand")
+  costPrice            Decimal?         @map("cost_price") @db.Decimal(12, 2)
+  sellingPrice         Decimal?         @map("selling_price") @db.Decimal(12, 2)
+  lowStockThreshold    Int?             @map("low_stock_threshold")
+  brand                String?          @db.VarChar(120)
+  manufacturer         String?          @db.VarChar(200)
+  category             String?          @db.VarChar(200)
+  imageUrl             String?          @map("image_url") @db.VarChar(500)
+  // Set when the product was created from a catalogue result: which catalogue and when.
+  catalogueProvider    String?          @map("catalogue_provider") @db.VarChar(40)
+  catalogueSourceName  String?          @map("catalogue_source_name") @db.VarChar(60)
+  catalogueRetrievedAt DateTime?        @map("catalogue_retrieved_at") @db.Timestamptz(3)
+  lastAdjustmentNote   String?          @map("last_adjustment_note") @db.VarChar(200)
+  lastUpdatedById      String?          @map("last_updated_by_id") @db.Uuid
+  lastUpdatedBy        User?            @relation("ProductLastUpdatedBy", fields: [lastUpdatedById], references: [id], onDelete: SetNull)
+  barcodes             ProductBarcode[]
+  stockMovements       StockMovement[]
+  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([organizationId, name])
   @@map("products")
@@ -150,4 +158,20 @@ model StockMovement {
   @@index([organizationId, productId, createdAt])
   @@index([organizationId, createdAt])
   @@map("stock_movements")
+}
+
+// Cached answers from public product catalogues, keyed by provider and GTIN. This holds only
+// public catalogue data (never organization data), so it is shared between organizations.
+model CatalogueEntry {
+  id         String   @id @default(uuid()) @db.Uuid
+  provider   String   @db.VarChar(40)
+  code       String   @db.VarChar(14)
+  found      Boolean
+  data       Json?
+  sourceName String?  @map("source_name") @db.VarChar(60)
+  sourceUrl  String?  @map("source_url") @db.VarChar(500)
+  fetchedAt  DateTime @default(now()) @map("fetched_at") @db.Timestamptz(3)
+
+  @@unique([provider, code])
+  @@map("catalogue_entries")
 }
