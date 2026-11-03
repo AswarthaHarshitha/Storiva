@@ -1,28 +1,11 @@
 import { z } from "zod";
+import { canonicalFormat } from "../lib/barcode.js";
 
-/** Symbologies the scanner can report; anything else is treated as an unknown format. */
-export const SCAN_FORMATS = [
-  "EAN-8",
-  "EAN-13",
-  "UPC-A",
-  "UPC-E",
-  "ITF14",
-  "ITF",
-  "Code128",
-  "Code39",
-  "Code93",
-  "Codabar",
-  "QRCode",
-  "MicroQRCode",
-  "DataMatrix",
-  "PDF417",
-  "Aztec",
-  "DataBar",
-  "DataBarExpanded",
-  "DataBarLimited",
-] as const;
-
-const format = z.enum(SCAN_FORMATS, { error: "Unknown barcode format." }).optional();
+const format = z
+  .string()
+  .max(40)
+  .refine((value) => canonicalFormat(value) !== null, "Unknown barcode format.")
+  .optional();
 const rawCode = z.string({ error: "Enter or scan a barcode." }).max(200, "Barcodes are limited to 200 characters.");
 
 export const barcodeLookupSchema = z.object({ code: rawCode, format });

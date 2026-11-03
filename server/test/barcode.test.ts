@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { expandUpcE, hasValidCheckDigit, normalizeBarcode } from "../src/lib/barcode.js";
+import { canonicalFormat, expandUpcE, hasValidCheckDigit, normalizeBarcode } from "../src/lib/barcode.js";
 
 describe("hasValidCheckDigit", () => {
   it.each(["4006381333931", "036000291452", "96385074", "00036000291452"])("accepts %s", (code) => {
@@ -70,11 +70,46 @@ describe("normalizeBarcode", () => {
     });
   });
 
+  it("accepts the decoder's format names as well as printed ones", () => {
+    const expected = { ok: true, code: "0036000291452", kind: "gtin" };
+    expect(normalizeBarcode("036000291452", "UPCA")).toEqual(expected);
+    expect(normalizeBarcode("0036000291452", "UPCA")).toEqual(expected);
+    expect(normalizeBarcode("0036000291452", "EAN13")).toEqual(expected);
+    expect(normalizeBarcode("4006381333932", "code 128")).toEqual({ ok: true, code: "4006381333932", kind: "other" });
+  });
+
+  it("accepts a UPC-E code that the decoder has already expanded", () => {
+    expect(normalizeBarcode("042100005264", "UPCE")).toEqual(normalizeBarcode("04252614", "UPC-E"));
+  });
+
+  it("validates ISBN-13 codes as retail barcodes", () => {
+    expect(normalizeBarcode("9780306406157", "ISBN")).toEqual({ ok: true, code: "9780306406157", kind: "gtin" });
+    expect(normalizeBarcode("9780306406158", "ISBN").ok).toBe(false);
+  });
+
   it("rejects a non-numeric value reported as a retail symbology", () => {
     expect(normalizeBarcode("ABC", "EAN-13").ok).toBe(false);
   });
 
   it.each([[""], ["   "], ["x".repeat(201)], ["abc\u0007def"]])("rejects %j", (value) => {
     expect(normalizeBarcode(value).ok).toBe(false);
+  });
+});
+
+describe("canonicalFormat", () => {
+  it.each([
+    ["EAN13", "EAN-13"],
+    ["EAN-13", "EAN-13"],
+    ["ean 13", "EAN-13"],
+    ["UPCA", "UPC-A"],
+    ["ITF14", "ITF-14"],
+    ["Code128", "Code 128"],
+    ["QRCode", "QR Code"],
+  ])("maps %s to %s", (name, canonical) => {
+    expect(canonicalFormat(name)).toBe(canonical);
+  });
+
+  it("returns null for unknown names", () => {
+    expect(canonicalFormat("NotAFormat")).toBeNull();
   });
 });

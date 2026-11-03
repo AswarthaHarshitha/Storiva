@@ -10,8 +10,45 @@ export type NormalizedBarcode =
   | { ok: true; code: string; kind: BarcodeKind }
   | { ok: false; error: string };
 
+/**
+ * Barcode format names, keyed by their letters and digits only, so the decoder's "EAN13", a
+ * label's "EAN-13" and "ean 13" all map to the same canonical name.
+ */
+const FORMATS: Record<string, string> = {
+  EAN8: "EAN-8",
+  EAN13: "EAN-13",
+  UPCA: "UPC-A",
+  UPCE: "UPC-E",
+  EANUPC: "EAN-13",
+  ISBN: "EAN-13",
+  ITF14: "ITF-14",
+  ITF: "ITF",
+  CODE128: "Code 128",
+  CODE39: "Code 39",
+  CODE39STD: "Code 39",
+  CODE39EXT: "Code 39",
+  CODE93: "Code 93",
+  CODABAR: "Codabar",
+  QRCODE: "QR Code",
+  MICROQRCODE: "QR Code",
+  DATAMATRIX: "Data Matrix",
+  PDF417: "PDF417",
+  AZTEC: "Aztec",
+  DATABAR: "DataBar",
+  DATABAROMNI: "DataBar",
+  DATABAREXP: "DataBar",
+  DATABAREXPANDED: "DataBar",
+  DATABARLTD: "DataBar",
+  DATABARLIMITED: "DataBar",
+};
+
+/** The canonical name for a format, or null if it is not one Storiva knows. */
+export function canonicalFormat(name: string): string | null {
+  return FORMATS[name.toUpperCase().replace(/[^A-Z0-9]/g, "")] ?? null;
+}
+
 /** Symbologies whose content is a GTIN and must carry a valid check digit. */
-const GTIN_FORMATS = new Set(["EAN-8", "EAN-13", "UPC-A", "UPC-E", "ITF14"]);
+const GTIN_FORMATS = new Set(["EAN-8", "EAN-13", "UPC-A", "UPC-E", "ITF-14"]);
 const MAX_LENGTH = 200;
 
 /** GS1 mod-10 check: weights 3,1,3,... from the digit left of the check digit. */
@@ -58,13 +95,15 @@ export function normalizeBarcode(raw: string, format?: string): NormalizedBarcod
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(value)) return { ok: false, error: "The barcode contains control characters." };
 
+  const canonical = format ? canonicalFormat(format) : null;
   const numericGtinLength = /^\d+$/.test(value) && [8, 12, 13, 14].includes(value.length);
-  const isGtin = format ? GTIN_FORMATS.has(format) : numericGtinLength;
+  const isGtin = canonical ? GTIN_FORMATS.has(canonical) : numericGtinLength;
   if (!isGtin) return { ok: true, code: value, kind: "other" };
   if (!numericGtinLength) return { ok: false, error: "That is not a valid EAN or UPC barcode." };
 
   let digits = value;
-  if (format === "UPC-E") {
+  // Decoders report UPC-E either as printed (8 digits) or already expanded.
+  if (canonical === "UPC-E" && value.length === 8) {
     const expanded = expandUpcE(value);
     if (!expanded) return { ok: false, error: "That is not a valid UPC-E barcode." };
     digits = expanded;
