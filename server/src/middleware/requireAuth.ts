@@ -3,7 +3,7 @@ import { isProduction } from "../config/env.js";
 import { HttpError } from "../lib/errors.js";
 import { findActiveSession, sessionTtlMs } from "../services/sessionService.js";
 
-export const SESSION_COOKIE = "stockflow_session";
+export const SESSION_COOKIE = "storiva_session";
 
 export const sessionCookieOptions = (): CookieOptions => ({
   httpOnly: true,

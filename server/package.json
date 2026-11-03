@@ -1,5 +1,5 @@
 {
-  "name": "stockflow-server",
+  "name": "storiva-server",
   "private": true,
   "type": "module",
   "main": "dist/index.js",

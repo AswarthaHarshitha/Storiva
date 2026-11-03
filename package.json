@@ -1,5 +1,5 @@
 {
-  "name": "stockflow",
+  "name": "storiva",
   "private": true,
   "description": "Multi-tenant inventory management for small sellers.",
   "workspaces": [

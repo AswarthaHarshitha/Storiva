@@ -6,6 +6,6 @@ if (!root) throw new Error("Root element #root is missing from index.html");
 
 createRoot(root).render(
   <StrictMode>
-    <p>StockFlow</p>
+    <p>Storiva</p>
   </StrictMode>,
 );

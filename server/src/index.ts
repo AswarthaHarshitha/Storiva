@@ -3,7 +3,7 @@ import { env } from "./config/env.js";
 import { prisma } from "./lib/prisma.js";
 
 const server = createApp().listen(env.PORT, () => {
-  console.log(`StockFlow API listening on port ${env.PORT}`);
+  console.log(`Storiva API listening on port ${env.PORT}`);
 });
 
 function shutdown() {

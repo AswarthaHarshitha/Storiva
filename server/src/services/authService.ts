@@ -7,7 +7,7 @@ const BCRYPT_COST = 12;
 
 // Compared against when an email is unknown, so a failed login takes the same time
 // whether or not the account exists.
-const DUMMY_HASH = bcrypt.hashSync("stockflow-timing-equalizer", BCRYPT_COST);
+const DUMMY_HASH = bcrypt.hashSync("storiva-timing-equalizer", BCRYPT_COST);
 
 const emailTaken = () =>
   new HttpError(409, "EMAIL_TAKEN", "An account with this email already exists.", {

@@ -16,7 +16,7 @@ let counter = 0;
 export async function signUpAgent(organizationName = "Test Organization") {
   counter += 1;
   const agent = request.agent(app);
-  const email = `owner${counter}@stockflow.test`;
+  const email = `owner${counter}@storiva.test`;
   const res = await agent
     .post("/api/auth/signup")
     .send({ email, password: "secret123", confirmPassword: "secret123", organizationName })

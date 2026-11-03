@@ -30,7 +30,7 @@ describe("signup", () => {
   it("starts a session in an httpOnly cookie", async () => {
     const res = await signup().expect(201);
     const cookie = String(res.headers["set-cookie"]);
-    expect(cookie).toMatch(/stockflow_session=/);
+    expect(cookie).toMatch(/storiva_session=/);
     expect(cookie).toMatch(/HttpOnly/i);
     expect(cookie).toMatch(/SameSite=Lax/i);
   });
@@ -121,7 +121,7 @@ describe("protected routes", () => {
   });
 
   it("rejects a forged session cookie", async () => {
-    await request(app).get("/api/dashboard").set("Cookie", "stockflow_session=forged-token").expect(401);
+    await request(app).get("/api/dashboard").set("Cookie", "storiva_session=forged-token").expect(401);
   });
 
   it("rejects an expired session", async () => {
