@@ -11,9 +11,12 @@ exists. Two kinds of verification are referenced:
   tablet (820 px) and phone (390 px) widths against the production build (`NODE_ENV=production`,
   compiled server serving the built web app). It fails on any browser console error and runs an
   axe-core WCAG 2.1 A/AA scan of every screen and dialog. Last run locally on 3 November 2026:
-  all steps passed, no console errors, no accessibility violations. The script was run during
-  development and is not part of the repository's automated suite. It will be repeated against
-  the live deployment.
+  all steps passed, no console errors, no accessibility violations. Run against the live
+  deployment on 3 November 2026 (commit `eb9fcd2`): all 27 steps passed, no console errors, no
+  accessibility violations. The script was run during development and is not part of the
+  repository's automated suite.
+- **Production API checks**: requests against the live API compared with the rows in the
+  production database (3 November 2026, commit `eb9fcd2`); see "Production verification" below.
 
 Paths: `S/` is `server/src/`, `W/` is `web/src/`.
 
@@ -54,7 +57,7 @@ Paths: `S/` is `server/src/`, `W/` is `web/src/`.
 | NFR-5a | Accessibility | Done | Visible labels, linked error messages, focus management, skip link, landmarks, keyboard-visible tooltips, AA contrast | Browser: keyboard reaches row actions and shows tooltips; skip link works; axe-core reports no WCAG 2.1 A/AA violations |
 | NFR-6 | No secrets in the repository | Done | Only `.env.example` is committed; `.env*` ignored | `git ls-files` reviewed |
 | NFR-7 | No fabricated data | Done | No seed data or demo accounts; new organizations start empty | Browser: new organization's dashboard and product list are empty |
-| NFR-8 | TypeScript strict, lint, tests and build pass | Done | `strict` in both workspaces; ESLint (type-checked rules on the server) | `npm run typecheck`, `npm run lint`, `npm test` (83 API, 35 web tests), `npm run build` |
+| NFR-8 | TypeScript strict, lint, tests and build pass | Done | `strict` in both workspaces; ESLint (type-checked rules on the server) | `npm run typecheck`, `npm run lint`, `npm test` (88 API, 35 web tests), `npm run build` |
 
 ## Assessment requirements
 
@@ -62,8 +65,28 @@ Paths: `S/` is `server/src/`, `W/` is `web/src/`.
 | --- | --- | --- | --- |
 | A-1 | Public GitHub repository | Done | https://github.com/AswarthaHarshitha/Storiva |
 | A-2 | Regular, meaningful commits | Done | Commits pushed as each stage was completed |
-| A-3 | Deployed on a server | Pending | `render.yaml` prepared; deployment requires the owner's Render and Neon accounts |
-| A-4 | Live link shared and verified | Pending | The browser walkthrough will be repeated against the live URL |
+| A-3 | Deployed on a server | Done | Render web service (`render.yaml`) with a Neon PostgreSQL database; migration `20261103061908_init` applied, `prisma migrate status` reports the schema up to date |
+| A-4 | Live link shared and verified | Done | https://storiva-wovt.onrender.com/login, verified with the browser walkthrough and the production API checks below |
+
+## Production verification
+
+Run on 3 November 2026 against https://storiva-wovt.onrender.com (commit `eb9fcd2`) with
+dedicated QA accounts, which were deleted from the production database afterwards. Existing
+user accounts were not touched.
+
+| Area | Result |
+| --- | --- |
+| Availability | `GET /api/health` 200; app routes and deep links served; HTTP redirects to HTTPS |
+| Database | Connected to Neon over SSL; migration applied; schema up to date |
+| Cookies and headers | Session cookie `HttpOnly; Secure; SameSite=Lax`; HSTS, CSP, `nosniff`, `X-Frame-Options` present; no cross-origin access granted |
+| Authentication | Signup creates a linked organization; login, logout, invalid login, protected routes; an expired session is rejected and deleted; a cookie replayed after logout is rejected |
+| Products | Create, edit, search by name and SKU, duplicate SKU rejected (any case), same SKU allowed in another organization, stock adjustment, delete with confirmation |
+| Validation | Fractional or negative quantity, fractional threshold and 3-decimal price rejected with field errors; largest price stored exactly |
+| Dashboard | Totals and low-stock count match a direct query of the organization's rows; quantity equal to the product's own threshold and to the default threshold counts as low; empty state for a new organization |
+| Tenant isolation | Organization B gets 404 reading, updating, adjusting or deleting A's product, and A's row is unchanged in the database; B's search shows only B's products; a forged `organizationId` is ignored for products and settings; settings and dashboards stay separate |
+| Concurrency | 10 simultaneous −1 adjustments on 5 units: exactly 5 succeed, stock ends at 0 |
+| Rate limiting | Failed logins from one client draw down one quota (19, 18, 17, …) over IPv4 and IPv6; a forged `X-Forwarded-For` does not change the key; a forged `CF-Connecting-IP` is rejected by Cloudflare (403) |
+| Responsive and accessibility | Desktop, tablet (820 px) and phone (390 px) without horizontal overflow; axe-core reports no WCAG 2.1 A/AA violations |
 
 ## Additions beyond the PRD
 

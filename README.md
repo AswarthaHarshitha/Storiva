@@ -6,6 +6,21 @@ Storiva is a multi-tenant web application for keeping a product list and its sto
 date. Each business works in its own private organization, sees its inventory totals at a
 glance and knows which products need reordering.
 
+**Live application:** https://storiva-wovt.onrender.com/login. Create an account to try it; every
+new organization starts empty. The service runs on Render's free plan, so the first request after
+a period of inactivity can take up to a minute.
+
+| First run | Phone |
+| --- | --- |
+| ![Dashboard of a new organization, prompting for the first product](docs/screenshots/dashboard-first-run.png) | ![Dashboard on a phone, with bottom navigation](docs/screenshots/mobile-dashboard.png) |
+
+| Product form with validation | Settings |
+| --- | --- |
+| ![Add product form showing required-field errors](docs/screenshots/product-form-validation.png) | ![Settings page with the default low-stock threshold](docs/screenshots/settings.png) |
+
+Screenshots are taken from the deployed application with an empty QA organization; no sample
+inventory was created for them.
+
 ## Overview
 
 Small sellers often track stock in spreadsheets that drift out of date and give no warning
@@ -201,7 +216,7 @@ cp server/.env.test.example server/.env.test   # then set DATABASE_URL
 | `npm run lint` | ESLint, both workspaces |
 | `npm run build` | Production build of the web app and the API |
 
-The suite currently contains 83 API tests and 35 web unit tests. The API tests cover signup
+The suite currently contains 88 API tests and 35 web unit tests. The API tests cover signup
 (including concurrent duplicate signups), login, logout, replay of a logged-out session token,
 expired and forged sessions and every protected route; product validation and boundaries,
 duplicate SKUs (including concurrent creates), search, updates, deletion and concurrent stock
@@ -224,7 +239,8 @@ adjustment calculation, and product filtering and sorting.
   a second line of defence. Client-side validation only provides earlier feedback.
 - **Other measures:** security headers via helmet (including a Content Security Policy), a
   20 kB request body limit, rate limiting on login and signup (20 attempts per 15 minutes per
-  IP), parameterised queries throughout, and no caching of API responses.
+  client IP, taken from Cloudflare's `cf-connecting-ip` on Render), parameterised queries
+  throughout, and no caching of API responses.
 
 ## Deployment
 
@@ -239,5 +255,8 @@ Neon.
    which applies pending migrations with `prisma migrate deploy` before starting the server.
    Render checks `GET /api/health`.
 
-On Render's free plan the service stops when idle, so the first request after a quiet period
-can take up to a minute.
+The blueprint also sets `CLIENT_IP_HEADER=cf-connecting-ip` so the login rate limiter sees each
+visitor's real address behind Render's Cloudflare edge.
+
+The live deployment is at https://storiva-wovt.onrender.com/login. On Render's free plan the
+service stops when idle, so the first request after a quiet period can take up to a minute.
