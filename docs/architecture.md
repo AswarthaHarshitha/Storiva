@@ -220,7 +220,7 @@ decimals), `lowStockThreshold` (integer ≥ 0, or `null` for the organization de
 | `lib/` | `validation.ts` (zod schemas mirroring the server rules), `format.ts` (number, price, time formatting) |
 | `components/` | Shared UI: layout, buttons, text fields, dialog, alert, stock status badge, toast |
 | `pages/` | One component per route |
-| `products/` | The adjust-stock and delete-confirmation dialogs |
+| `products/` | The adjust-stock and delete-confirmation dialogs, and `stockAdjustment.ts`, the pure calculation behind the adjust dialog |
 
 **Routing and auth state** (`App.tsx`). On load the app calls `GET /api/auth/me`. With no session
 only `/login` and `/signup` exist and any other address redirects to login, remembering where the
@@ -235,13 +235,22 @@ clears the whole cache so nothing from one organization is shown to the next per
 **Forms** validate on blur and on submit with the same rules as the server, and show the
 server's field errors (for example a duplicate SKU) next to the right field. The server always
 validates again; client validation is only for faster feedback. Submit buttons are disabled with
-a progress label while a request is in flight, and a confirmation notice appears only after the
-server has confirmed the change.
+a progress label while a request is in flight and repeated submits are ignored, and a
+confirmation notice appears only after the server has confirmed the change.
+
+**Stock adjustment dialog** shows units on hand, the signed change and the resulting quantity as
+the amount is typed, flags a removal that would go below zero immediately, and labels the button
+with the exact action ("Remove 20 units"). The server repeats the below-zero check atomically.
 
 **Accessibility**: every input has a visible `<label>`; errors are linked with
 `aria-describedby` and `aria-invalid`; the first invalid field is focused on submit; dialogs use
-the native `<dialog>` element (focus trapping, Escape to close); icon-only buttons have
-`aria-label`s; status changes are announced through `role="status"`/`aria-live`.
+the native `<dialog>` element (focus trapping, Escape to close, focus returned afterwards), and
+the delete dialog focuses "Keep product" by default; icon-only buttons have descriptive
+`aria-label`s and a tooltip that appears on hover and on keyboard focus; a skip link leads past
+the navigation; every page has a `main` landmark; status changes are announced through
+`role="status"`/`aria-live`. Text meets WCAG AA contrast (4.5:1) and form field borders meet the
+3:1 non-text minimum. An automated axe-core scan of every screen and dialog reports no WCAG 2.1
+A/AA violations.
 
 **Responsive layout**: a sidebar on large screens; a top bar and bottom tab bar on phones and
 tablets. The product table becomes a stacked list below the `md` breakpoint, and form sections

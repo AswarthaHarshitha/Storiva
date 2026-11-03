@@ -1,16 +1,18 @@
 # Requirements traceability
 
-Source documents: *Phase 1 – 6-Hour MVP PRD* (written for the working name "StockFlow"; the product
-ships as Storiva) and the *Technical Assessment Instructions*.
+Source documents: the *Phase 1 – 6-Hour MVP PRD* for the inventory application and the
+*Technical Assessment Instructions*.
 
 A requirement is marked **Done** only when it has been exercised end to end, not when its screen
 exists. Two kinds of verification are referenced:
 
 - **API tests**: `server/test/*.test.ts`, run with `npm test` against PostgreSQL.
-- **Browser walkthrough**: a scripted run of every flow below in Chromium (desktop and phone
-  sizes) against the production build (`NODE_ENV=production`, compiled server serving the built
-  web app), checking for console errors. Run locally on 3 November 2026; it will be repeated
-  against the live deployment.
+- **Browser walkthrough**: a scripted run of every flow below in Chromium at desktop (1360 px),
+  tablet (820 px) and phone (390 px) widths against the production build (`NODE_ENV=production`,
+  compiled server serving the built web app). It fails on any browser console error and runs an
+  axe-core WCAG 2.1 A/AA scan of every screen and dialog. Last run locally on 3 November 2026:
+  all steps passed, no console errors, no accessibility violations. It will be repeated against
+  the live deployment.
 
 Paths: `S/` is `server/src/`, `W/` is `web/src/`.
 
@@ -30,9 +32,9 @@ Paths: `S/` is `server/src/`, `W/` is `web/src/`.
 | FR-4.2 | Product list: name, SKU, quantity, low-stock indicator, selling price | Done | `listProducts` returns `effectiveThreshold` and `isLowStock` | `W/pages/ProductsPage.tsx` table and phone list | products: sorted list with low-stock flags | Browser: out / low (default) / low (own threshold) / in stock badges |
 | FR-4.3 | Search by name or SKU | Done | `?q=` case-insensitive match on name or SKU | Debounced search field, result count, no-match state | products: name search, SKU search, no match | Browser: search by name, by SKU, no match, clear |
 | FR-4.4 | Edit any field, including quantity | Done | `updateProduct` | Edit form | products: all fields updated; keep own SKU but not take another's; invalid quantity leaves row unchanged | Browser: quantity edit reflected in list and status |
-| FR-4.5 | Delete with a confirmation dialog | Done | `deleteProduct` (hard delete, allowed by PRD) | `W/products/DeleteProductDialog.tsx` from list and edit page | products: delete then 404 | Browser: cancel keeps the product; confirm deletes it |
+| FR-4.5 | Delete with a confirmation dialog | Done | `deleteProduct` (hard delete, allowed by PRD) | `W/products/DeleteProductDialog.tsx` from list and edit page | products: delete then 404 | Browser: dialog names the product, focuses "Keep product", Escape cancels, confirm deletes |
 | FR-5.1 | Quantity editable in the product form | Done | `updateProduct` | Edit form | see FR-4.4 | see FR-4.4 |
-| FR-5.2 | Optional quick "adjust stock" (+/- N with a note) | Done | `adjustStock`: one conditional UPDATE, never below zero | `W/products/AdjustStockDialog.tsx` | products: add/remove with note; below-zero rejected; 15 concurrent −1 on 10 units → exactly 10 succeed; zero/fractional rejected | Browser: over-removal blocked, valid removal applied, note shown on edit page |
+| FR-5.2 | Optional quick "adjust stock" (+/- N with a note) | Done | `adjustStock`: one conditional UPDATE, never below zero | `W/products/AdjustStockDialog.tsx`, `W/products/stockAdjustment.ts` | products: add/remove with note; below-zero rejected; 15 concurrent −1 on 10 units → exactly 10 succeed; zero/fractional rejected. Web: `planAdjustment` amounts, limits and shortfall | Browser: on hand / change / new quantity shown; over-removal blocked; "Remove 20 units" applied; note shown on edit page |
 | FR-5.3 | Store last updated by and timestamp (recommended) | Done | `last_updated_by_id`, `updated_at` | Edit page header | products: `lastUpdatedBy` set on create and adjust | Browser: "Last updated … by <email>" |
 | FR-6.1 | Land on the dashboard after login | Done | | `W/App.tsx`, `LoginPage` redirect | | Browser: signup and login land on dashboard (or the page originally requested) |
 | FR-6.2 | Total products and total quantity | Done | `S/services/dashboardService.ts` aggregate | `W/pages/DashboardPage.tsx` summary | dashboard: empty org is all zeros; totals match stored rows; update immediately after adjust and delete | Browser: 4 products / 55 units matched the data entered |
@@ -47,10 +49,11 @@ Paths: `S/` is `server/src/`, `W/` is `web/src/`.
 | NFR-2 | Validation on client and server | Done | zod on both sides; the server is authoritative | API tests (422s); web unit tests for client rules |
 | NFR-3 | Database constraints and indexes | Done | Unique `(organization_id, lower(sku))`, CHECK constraints, foreign keys, indexes | Constraint behaviour covered by API tests |
 | NFR-4 | Decimal-safe prices | Done | `DECIMAL(12,2)`; strings in the API | API test: `0.10` and `19.99` stored exactly |
-| NFR-5 | Desktop first, usable on tablet and phone | Done | Sidebar ↔ bottom navigation; table ↔ stacked list; single-column forms | Browser at 390 px: no horizontal overflow |
+| NFR-5 | Desktop first, usable on tablet and phone | Done | Sidebar ↔ bottom navigation; table ↔ stacked list; single-column forms | Browser at 820 px and 390 px: no horizontal overflow |
+| NFR-5a | Accessibility | Done | Visible labels, linked error messages, focus management, skip link, landmarks, keyboard-visible tooltips, AA contrast | Browser: keyboard reaches row actions and shows tooltips; skip link works; axe-core reports no WCAG 2.1 A/AA violations |
 | NFR-6 | No secrets in the repository | Done | Only `.env.example` is committed; `.env*` ignored | `git ls-files` reviewed |
 | NFR-7 | No fabricated data | Done | No seed data or demo accounts; new organizations start empty | Browser: new organization's dashboard and product list are empty |
-| NFR-8 | TypeScript strict, lint, tests and build pass | Done | `strict` in both workspaces; ESLint (type-checked rules on the server) | `npm run typecheck`, `npm run lint`, `npm test`, `npm run build` |
+| NFR-8 | TypeScript strict, lint, tests and build pass | Done | `strict` in both workspaces; ESLint (type-checked rules on the server) | `npm run typecheck`, `npm run lint`, `npm test` (75 API, 28 web tests), `npm run build` |
 
 ## Assessment requirements
 

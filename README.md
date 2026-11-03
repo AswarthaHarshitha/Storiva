@@ -2,195 +2,237 @@
 
 A simpler way to stay in control of your inventory.
 
-Storiva is a multi-tenant inventory application for small sellers. Each business signs up as its
-own organization, keeps a list of its products with stock levels and prices, and sees at a
-glance which products are running low.
+Storiva is a multi-tenant web application for keeping a product list and its stock levels up to
+date. Each business works in its own private organization, sees its inventory totals at a
+glance and knows which products need reordering.
 
-- **Live application:** _added after deployment_
-- **Repository:** https://github.com/AswarthaHarshitha/Storiva
+## Overview
 
-## The problem
+Small sellers often track stock in spreadsheets that drift out of date and give no warning
+before an item runs out. Storiva is designed for an owner who manages their own inventory from a
+laptop or desktop browser, and also works on tablets and phones.
 
-Small shops and makers often track stock in a spreadsheet or a notebook. It works until someone
-forgets to update it, two people edit it at once, or a best-seller quietly runs out. Storiva
-covers the essentials and nothing more: one place for the product list, quantities that are
-always current, and a clear list of what needs reordering.
+After signing up, an owner can:
 
-## Features
+- maintain products with a SKU, quantity on hand, cost and selling price;
+- increase or decrease stock as goods arrive or sell;
+- see how many products and units they hold and which products are at or below their
+  low-stock threshold;
+- set the default threshold their organization uses.
 
-- **Accounts and organizations.** Sign up with an email, password and organization name. Each
-  signup creates a private organization; its data is never visible to any other organization.
-- **Products.** Create, view, edit and delete products with a name, SKU (unique within the
-  organization, case-insensitive), description, quantity on hand, cost and selling price, and
-  an optional low-stock threshold. Deleting asks for confirmation first.
+Every organization's data is isolated from every other organization's on the server.
+
+## Core features
+
+- **Authentication.** Sign up with email, password and organization name; log in and out.
+  Passwords are hashed and sessions are held server-side.
+- **Organization isolation.** Each signup creates an organization. All products, totals and
+  settings belong to one organization and can only be read or changed by its owner.
+- **Product management.** Create, view, edit and delete products (name, SKU, description,
+  quantity, cost price, selling price, low-stock threshold). SKUs are unique within an
+  organization regardless of case. Deletion requires confirmation.
+- **Stock updates.** Edit the quantity directly, or add/remove units from the product list with
+  an optional note. The dialog shows the current, changed and resulting quantity, and stock
+  cannot go below zero, including under simultaneous updates. Each product records who last
+  changed it and when.
+- **Low-stock detection.** A product is low on stock when its quantity is at or below its own
+  threshold, or the organization default when it has none.
+- **Dashboard.** Total products, total units on hand, the number of low-stock products and a
+  table of those products, lowest quantity first. New organizations see a prompt to add their
+  first product.
+- **Organization settings.** The default low-stock threshold (initially 5), applied immediately
+  to the dashboard and product list.
 - **Search.** Find products by name or SKU.
-- **Stock updates.** Change the quantity in the edit form, or use the quick adjust dialog to add
-  or remove units with an optional note. Stock can never go below zero, even with simultaneous
-  updates. Each product shows who changed it last and when.
-- **Dashboard.** Total products, total units on hand and the number of low-stock products,
-  followed by a table of everything at or below its threshold. A new account sees a short guide
-  to adding its first product instead.
-- **Settings.** An organization-wide default low-stock threshold (5 unless changed), used for any
-  product without a threshold of its own.
 
-Out of scope for this version, as defined by the product requirements: multiple warehouses,
-variants, categories, images, orders, purchasing, suppliers, integrations, imports,
-notifications, staff accounts, audit history and billing.
+## Technology stack
 
-## Technology
-
-| Layer | Choice |
+| Area | Technology |
 | --- | --- |
-| Web client | React 19, TypeScript, Vite, Tailwind CSS v4, TanStack Query, React Router, Lucide icons |
-| API | Node.js 22, Express 5, TypeScript, zod validation |
-| Database | PostgreSQL with Prisma ORM and migrations |
-| Authentication | bcrypt password hashing, server-side sessions in an `HttpOnly` cookie |
-| Testing | Vitest and Supertest against a real PostgreSQL test database |
-| Hosting | Render (application) and Neon (PostgreSQL) |
+| Frontend | React 19, TypeScript 5.9, Vite 7, Tailwind CSS 4, TanStack Query 5, React Router 7, Lucide icons |
+| Backend | Node.js (20.19 or newer; 22 in `.nvmrc`), Express 5, TypeScript 5.9 |
+| Validation | zod 4, on both the client and the server |
+| Database | PostgreSQL, Prisma 6 ORM and migrations |
+| Security | bcryptjs, helmet, express-rate-limit, cookie-based server-side sessions |
+| Testing | Vitest 4, Supertest |
+| Deployment | Render (web service), Neon (PostgreSQL) |
 
 ## Architecture
 
-```
-Browser ──same-origin /api/*──▶ Express ──▶ services ──▶ Prisma ──▶ PostgreSQL
-        ◀──── built web app ────┘
+```mermaid
+flowchart LR
+  Browser["Browser<br/>React single-page app"]
+  subgraph Service["Node.js service"]
+    Static["Static files<br/>(built web app)"]
+    API["Express API<br/>routes → controllers → services"]
+  end
+  DB[("PostgreSQL")]
+
+  Browser -- "GET /*" --> Static
+  Browser -- "/api/* JSON<br/>+ session cookie" --> API
+  API -- "Prisma" --> DB
 ```
 
-In production a single Node service serves both the JSON API and the built React app, so the
-session cookie is first-party and no CORS is needed. Each API request goes through
-route → controller (input validation) → service (database access). The organization used by
-every query is taken from the server-side session, never from the request.
+- **Frontend.** A React single-page app. All server communication goes through one fetch wrapper
+  (`web/src/api/client.ts`); TanStack Query caches responses and refreshes the product list and
+  dashboard after every change.
+- **Backend.** An Express JSON API. Routes map to controllers, which validate input with zod
+  and call services; services perform all database access through Prisma. Responses are either
+  `{ "data": … }` or `{ "error": { "code", "message", "fields"? } }`.
+- **Communication.** In production one Node service serves both the API and the built web app,
+  so the browser talks to a single origin and no CORS is configured. In development the Vite dev
+  server proxies `/api` to the API, preserving that arrangement.
+- **Database.** PostgreSQL holds organizations, users, sessions and products. Integrity rules
+  are enforced by the database as well as the application: a unique index on
+  `(organization_id, lower(sku))`, CHECK constraints against negative quantities, thresholds and
+  prices, and foreign keys. Prices are stored as `DECIMAL(12,2)` and exchanged as strings.
+- **Authentication.** A login creates a random session token stored in an `HttpOnly` cookie;
+  the database keeps only its SHA-256 hash. Logging out deletes the session on the server.
+- **Organization isolation.** The organization for every request is taken from the session,
+  never from the request. Each product query filters by that organization in the same statement
+  that reads or writes the row.
 
-[docs/architecture.md](docs/architecture.md) walks through the request lifecycle, data model,
-authentication, tenant isolation, API endpoints, web client and deployment in detail.
-[REQUIREMENTS.md](REQUIREMENTS.md) maps each requirement to its implementation and tests.
+[docs/architecture.md](docs/architecture.md) covers each of these in detail, including the full
+API reference. [REQUIREMENTS.md](REQUIREMENTS.md) maps every product requirement to its
+implementation and tests.
 
 ## Project structure
 
 ```
 server/
-  prisma/              schema.prisma and SQL migrations
+  prisma/              Prisma schema and SQL migrations
   src/
-    app.ts             Express app: security headers, JSON parsing, routes, static web app
-    config/env.ts      Validated environment variables
-    routes/            URL → controller mapping
+    app.ts             Express app: security headers, parsers, API routes, static web app
+    index.ts           Process entry point
+    config/            Environment variable validation
+    routes/            URL-to-controller mapping
     controllers/       Request parsing and responses
     services/          Business logic and database access
-    validation/        zod schemas for request bodies
-    middleware/        Authentication, validation helper, error handling
-    lib/               Prisma client and error types
+    validation/        zod request schemas
+    middleware/        Authentication, input parsing, error handling
+    lib/               Prisma client and error helpers
   test/                API integration tests
 web/
   src/
     api/               Fetch wrapper and response types
-    hooks/             Data fetching, auth state and form state
-    pages/             One component per screen
+    hooks/             Server data, authentication and form state
+    pages/             Screens (login, signup, dashboard, products, product form, settings)
     components/        Shared UI components
     products/          Stock adjustment and delete dialogs
-    lib/               Client validation and formatting
+    lib/               Client-side validation and formatting
 docs/architecture.md   Technical walkthrough
+REQUIREMENTS.md        Requirements traceability
 render.yaml            Render deployment blueprint
 ```
 
-## Database design
+## Getting started
 
-| Table | Purpose |
-| --- | --- |
-| `organizations` | One per signup; holds the default low-stock threshold |
-| `users` | Owner account: lower-cased email, bcrypt hash, organization |
-| `sessions` | Active logins, stored as SHA-256 hashes of the cookie token |
-| `products` | Inventory, always tied to one organization |
+### Prerequisites
 
-Constraints are enforced in PostgreSQL as well as in the application: SKU is unique per
-organization ignoring case, quantity/threshold/prices cannot be negative, and prices are
-`DECIMAL(12,2)` so amounts stay exact. See [docs/architecture.md](docs/architecture.md#3-data-model).
+- Node.js 20.19 or newer (22 recommended; `nvm use` reads `.nvmrc`)
+- PostgreSQL 14 or newer, with `createdb` available
 
-## Running locally
-
-**Prerequisites:** Node.js 22 (see `.nvmrc`) and PostgreSQL 14 or newer.
+### Install
 
 ```bash
 git clone https://github.com/AswarthaHarshitha/Storiva.git
 cd Storiva
 npm install
-
-# Create a development database and a separate one for the tests
-createdb storiva
-createdb storiva_test
-
-# Configure the API
-cp server/.env.example server/.env
-# then edit server/.env and set DATABASE_URL, e.g.
-# DATABASE_URL="postgresql://YOUR_USER@localhost:5432/storiva"
-
-# Apply the migrations
-npm run db:migrate -w server
-
-# Start the API (port 4000) and the web app (port 5173) in two terminals
-npm run dev:server
-npm run dev:web
 ```
 
-Open http://localhost:5173 and create an account. The inventory starts empty.
-
-### Environment variables
-
-Set in `server/.env` locally, or in the hosting provider's dashboard in production.
-
-| Variable | Required | Description |
-| --- | --- | --- |
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `PORT` | No | API port, default `4000` (Render sets it automatically) |
-| `NODE_ENV` | No | `development`, `test` or `production`. Production enables `Secure` cookies, trusts the hosting proxy and serves the built web app |
-| `SESSION_TTL_DAYS` | No | How long a login lasts, 1–90 days, default `7` |
-
-The web app needs no environment variables; it calls the API on its own origin.
-
-### Database migrations
+### Configure and create the database
 
 ```bash
-npm run db:migrate -w server          # development: apply migrations (and create new ones after schema changes)
-npx prisma migrate deploy             # production: apply pending migrations only (run from server/)
+cp server/.env.example server/.env
+createdb storiva
 ```
 
-In production `npm start` runs `prisma migrate deploy` before starting the server.
+Edit `server/.env` and set `DATABASE_URL` for your PostgreSQL user:
+`postgresql://USER:PASSWORD@localhost:5432/storiva`, or `postgresql://USER@localhost:5432/storiva`
+if your local user has no password.
+
+### Run migrations
+
+```bash
+npm run db:migrate -w server
+```
+
+### Start the application
+
+Run the API and the web app in two terminals:
+
+```bash
+npm run dev:server   # API on http://localhost:4000
+npm run dev:web      # web app on http://localhost:5173
+```
+
+Open http://localhost:5173 and create an account. A new organization starts with no products.
+
+## Environment variables
+
+The API reads these from `server/.env` (see `server/.env.example`). The web app needs none.
+
+| Variable | Required | Purpose | Example |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | Yes | PostgreSQL connection string | `postgresql://USER:PASSWORD@localhost:5432/storiva` |
+| `PORT` | No | Port the API listens on (default `4000`; set by Render) | `4000` |
+| `NODE_ENV` | No | `development`, `test` or `production`. Production adds the `Secure` cookie flag, trusts one proxy hop and serves the built web app | `development` |
+| `SESSION_TTL_DAYS` | No | Session lifetime in days, 1–90 (default `7`) | `7` |
+
+The variables are validated at startup; the server refuses to start with a clear message if one
+is missing or invalid.
 
 ## Testing
 
-The API tests run against a real PostgreSQL database. They empty its tables before every test,
-so they refuse to run unless the database name ends in `_test`.
+The API tests run the real Express app against a real PostgreSQL database. Because every test
+empties the tables, they refuse to run unless the database name ends in `_test`.
 
 ```bash
-# server/.env.test
-DATABASE_URL="postgresql://YOUR_USER@localhost:5432/storiva_test"
-NODE_ENV=test
+createdb storiva_test
+cp server/.env.test.example server/.env.test   # then set DATABASE_URL
 ```
 
-```bash
-npm test             # API integration tests and web unit tests
-npm run typecheck    # TypeScript, both workspaces
-npm run lint         # ESLint, both workspaces
-npm run build        # production build of the web app and the API
-```
+| Command | What it runs |
+| --- | --- |
+| `npm test` | API integration tests, then web unit tests |
+| `npm run typecheck` | TypeScript in strict mode, both workspaces |
+| `npm run lint` | ESLint, both workspaces |
+| `npm run build` | Production build of the web app and the API |
 
-The API tests cover signup, login, logout and protected routes; product validation, search,
-updates, deletion and concurrent stock adjustments; dashboard totals and low-stock rules;
-settings persistence; and cross-organization read, update, adjust and delete attempts.
+The suite currently contains 75 API tests and 28 web unit tests. The API tests cover signup,
+login, logout, expired and forged sessions and every protected route; product validation,
+duplicate SKUs, search, updates, deletion and concurrent stock adjustments; dashboard totals
+and low-stock rules; settings persistence; error responses; and attempts by one organization to
+read, update, adjust or delete another organization's products. The web tests cover client-side
+validation, payload conversion, stock status and the stock adjustment calculation.
+
+## Security
+
+- **Passwords** are hashed with bcrypt (cost 12). Login failures return the same response
+  whether or not the email exists, and the timing is equalised.
+- **Sessions** use a 256-bit random token in an `HttpOnly`, `SameSite=Lax` cookie, marked
+  `Secure` in production. Only a SHA-256 hash of the token is stored. Sessions expire and are
+  revoked on logout.
+- **Organization isolation** is enforced in the service layer: the organization comes from the
+  session, and every read, update, stock adjustment and delete includes it in the query.
+  Another organization's product is reported as not found (404).
+- **Input validation** runs on the server for every request (zod), with database constraints as
+  a second line of defence. Client-side validation only provides earlier feedback.
+- **Other measures:** security headers via helmet (including a Content Security Policy), a
+  20 kB request body limit, rate limiting on login and signup (20 attempts per 15 minutes per
+  IP), parameterised queries throughout, and no caching of API responses.
 
 ## Deployment
 
-The repository includes a Render Blueprint (`render.yaml`) for one web service. It uses a
-PostgreSQL database hosted on Neon.
+`render.yaml` defines a single Render web service; the database is a PostgreSQL instance on
+Neon.
 
-1. **Create the database.** In Neon, create a project and copy its connection string. Use the
-   direct (not pooled) connection string, which must include `sslmode=require`.
-2. **Create the service.** In Render, choose **New → Blueprint**, select this repository and
-   confirm. When asked, paste the Neon connection string as `DATABASE_URL`.
-3. **Deploy.** Render runs `npm ci --include=dev && npm run build`, then `npm start`, which
-   applies the migrations and starts the server. The health check is `GET /api/health`.
+1. **Database.** Create a Neon project and copy its direct (non-pooled) connection string, which
+   includes `sslmode=require`.
+2. **Service.** In Render, choose **New → Blueprint**, select this repository and enter the Neon
+   connection string as `DATABASE_URL`.
+3. **Build and start.** Render runs `npm ci --include=dev && npm run build`, then `npm start`,
+   which applies pending migrations with `prisma migrate deploy` before starting the server.
+   Render checks `GET /api/health`.
 
-Render's free plan stops idle services, so the first request after a quiet period can take
-around a minute while the service starts.
-
-## Screenshots
-
-_Added from the live deployment._
+On Render's free plan the service stops when idle, so the first request after a quiet period
+can take up to a minute.
