@@ -8,6 +8,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { EditProductPage, NewProductPage } from "./pages/ProductFormPage";
 import { ProductsPage } from "./pages/ProductsPage";
+import { ScanPage } from "./pages/ScanPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SignupPage } from "./pages/SignupPage";
 
@@ -43,6 +44,7 @@ export function App() {
         <Route path="products" element={<ProductsPage />} />
         <Route path="products/new" element={<NewProductPage />} />
         <Route path="products/:id/edit" element={<EditProductPage />} />
+        <Route path="scan" element={<ScanPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

@@ -18,7 +18,17 @@ export function createApp() {
   // CLIENT_IP_HEADER (see middleware/rateLimit.ts), not from the proxy-hop count.
   if (isProduction) app.set("trust proxy", 1);
 
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          // The barcode decoder is WebAssembly served from this origin; compiling it needs
+          // 'wasm-unsafe-eval'. No other script sources are allowed.
+          scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
+        },
+      },
+    }),
+  );
   app.use(express.json({ limit: "20kb" }));
   app.use(cookieParser());
 

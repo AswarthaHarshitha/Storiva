@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { ApiError, errorMessage } from "../api/client";
 import type { Product } from "../api/types";
@@ -16,8 +16,11 @@ import { useProduct, useSaveProduct, useSettings } from "../hooks/useInventory";
 import { formatRelativeTime, pluralize } from "../lib/format";
 import { productFormSchema, toProductPayload, type ProductFormValues } from "../lib/validation";
 import { DeleteProductDialog } from "../products/DeleteProductDialog";
+import { ProductBarcodes } from "../products/ProductBarcodes";
+import { StockHistory } from "../products/StockHistory";
 
 const emptyValues: ProductFormValues = {
+  barcode: "",
   name: "",
   sku: "",
   description: "",
@@ -28,6 +31,7 @@ const emptyValues: ProductFormValues = {
 };
 
 const toFormValues = (product: Product): ProductFormValues => ({
+  barcode: "",
   name: product.name,
   sku: product.sku,
   description: product.description ?? "",
@@ -46,11 +50,20 @@ const backLink = (
 
 export function NewProductPage() {
   useDocumentTitle("Add product");
+  const [params] = useSearchParams();
+  const scanned = params.get("barcode")?.slice(0, 200) ?? "";
   return (
     <>
       {backLink}
-      <PageHeader title="Add product" description="Add an item you stock. You can change any of this later." />
-      <ProductForm initialValues={emptyValues} />
+      <PageHeader
+        title="Add product"
+        description={
+          scanned
+            ? "The barcode you scanned is filled in. Add the details you know; you can change any of this later."
+            : "Add an item you stock. You can change any of this later."
+        }
+      />
+      <ProductForm initialValues={{ ...emptyValues, barcode: scanned }} />
     </>
   );
 }
@@ -93,6 +106,8 @@ export function EditProductPage() {
       {backLink}
       <PageHeader title={product.data.name} description={<LastUpdated product={product.data} />} />
       <ProductForm key={product.data.id} product={product.data} initialValues={toFormValues(product.data)} />
+      <ProductBarcodes product={product.data} />
+      <StockHistory productId={product.data.id} />
     </>
   );
 }
@@ -135,7 +150,12 @@ function ProductForm({ product, initialValues }: { product?: Product; initialVal
         void navigate("/products");
       },
       onError: (error) => {
-        if (error instanceof ApiError && Object.keys(error.fields).length > 0) showServerErrors(error.fields);
+        if (error instanceof ApiError && Object.keys(error.fields).length > 0) {
+          // The API reports barcode problems as "barcode" or "barcodes.0"; the form has one field.
+          const { barcode, "barcodes.0": firstBarcode, ...rest } = error.fields;
+          const barcodeError = barcode ?? firstBarcode;
+          showServerErrors(barcodeError ? { ...rest, barcode: barcodeError } : rest);
+        }
       },
     });
   });
@@ -165,7 +185,18 @@ function ProductForm({ product, initialValues }: { product?: Product; initialVal
       <Section title="Details" description="How the product is named and identified.">
         <TextField label="Name" required autoComplete="off" className="sm:col-span-2" {...field("name")} />
         <TextField label="SKU" required autoComplete="off" spellCheck={false} hint="Unique within your inventory." {...field("sku")} />
-        <div className="hidden sm:block" />
+        {product ? (
+          <div className="hidden sm:block" />
+        ) : (
+          <TextField
+            label="Barcode"
+            autoComplete="off"
+            spellCheck={false}
+            className="[&_input]:font-mono"
+            hint="Optional. Scan or type the product's barcode."
+            {...field("barcode")}
+          />
+        )}
         <TextField label="Description" multiline className="sm:col-span-2" {...field("description")} />
       </Section>
 

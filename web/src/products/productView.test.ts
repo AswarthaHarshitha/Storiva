@@ -15,6 +15,7 @@ const product = (name: string, quantityOnHand: number, effectiveThreshold = 5): 
   isLowStock: quantityOnHand <= effectiveThreshold,
   lastAdjustmentNote: null,
   lastUpdatedBy: null,
+  barcodes: [],
   createdAt: "",
   updatedAt: "",
 });

@@ -29,3 +29,12 @@ describe("API conventions", () => {
     expect(res.headers["cache-control"]).toBe("no-store");
   });
 });
+
+describe("content security policy", () => {
+  it("allows WebAssembly from this origin for the scanner but no other script sources", async () => {
+    const res = await request(app).get("/api/health");
+    const csp = String(res.headers["content-security-policy"]);
+    expect(csp).toMatch(/script-src 'self' 'wasm-unsafe-eval'(;|$)/);
+    expect(csp).toContain("default-src 'self'");
+  });
+});

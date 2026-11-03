@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { productFormSchema, signupSchema, thresholdSchema, toProductPayload, validate, type ProductFormValues } from "./validation";
 
 const product = (overrides: Partial<ProductFormValues> = {}): ProductFormValues => ({
+  barcode: "",
   name: "Stoneware mug",
   sku: "MUG-01",
   description: "",

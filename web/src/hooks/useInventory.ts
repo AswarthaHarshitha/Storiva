@@ -1,6 +1,15 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { Dashboard, Product, ProductPayload, Settings } from "../api/types";
+import type {
+  BarcodeLookup,
+  Dashboard,
+  Product,
+  ProductPayload,
+  Settings,
+  StockMovement,
+  StockOperationRequest,
+  StockOperationResult,
+} from "../api/types";
 
 const keys = {
   products: ["products"] as const,
@@ -77,5 +86,44 @@ export function useSaveSettings() {
       queryClient.setQueryData(keys.settings, settings);
       await refresh();
     },
+  });
+}
+
+export function useMovements(productId: string | undefined) {
+  return useQuery({
+    queryKey: [...keys.products, "movements", productId],
+    queryFn: () => api.get<StockMovement[]>(`/products/${productId ?? ""}/movements?limit=10`),
+    enabled: Boolean(productId),
+  });
+}
+
+export const lookupBarcode = (code: string, format?: string) =>
+  api.get<BarcodeLookup>(
+    `/barcodes/lookup?code=${encodeURIComponent(code)}${format ? `&format=${encodeURIComponent(format)}` : ""}`,
+  );
+
+export function useStockOperation() {
+  const refresh = useRefreshInventory();
+  return useMutation({
+    mutationFn: (request: StockOperationRequest) => api.post<StockOperationResult>("/stock/operations", request),
+    onSuccess: refresh,
+  });
+}
+
+export function useAttachBarcode() {
+  const refresh = useRefreshInventory();
+  return useMutation({
+    mutationFn: ({ productId, code, format }: { productId: string; code: string; format?: string }) =>
+      api.post<Product>(`/products/${productId}/barcodes`, { code, format }),
+    onSuccess: refresh,
+  });
+}
+
+export function useRemoveBarcode() {
+  const refresh = useRefreshInventory();
+  return useMutation({
+    mutationFn: ({ productId, barcodeId }: { productId: string; barcodeId: string }) =>
+      api.delete(`/products/${productId}/barcodes/${barcodeId}`),
+    onSuccess: refresh,
   });
 }

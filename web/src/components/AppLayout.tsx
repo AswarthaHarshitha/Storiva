@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, LogOut, Package, Settings } from "lucide-react";
+import { LayoutDashboard, LogOut, Package, ScanLine, Settings } from "lucide-react";
 import type { Account } from "../api/types";
 import { useLogout } from "../hooks/useAccount";
 import { Wordmark } from "./Wordmark";
@@ -7,6 +7,7 @@ import { Wordmark } from "./Wordmark";
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/products", label: "Products", icon: Package, end: false },
+  { to: "/scan", label: "Scan", icon: ScanLine, end: false },
   { to: "/settings", label: "Settings", icon: Settings, end: false },
 ];
 
@@ -87,7 +88,7 @@ export function AppLayout({ account }: { account: Account }) {
         <Outlet />
       </main>
 
-      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-3 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
+      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
         {navItems.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
