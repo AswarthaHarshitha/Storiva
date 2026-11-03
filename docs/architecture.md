@@ -218,6 +218,40 @@ low-stock list) uses Prisma's `$queryRaw` tagged template, which sends values as
   barcode can be registered independently by different organizations, and one organization
   can never see another's.
 
+## 6b. Product catalogues
+
+`server/src/catalogue/`. Used only to prefill a new product; nothing is saved without the user.
+
+- **Providers** implement one interface (`lookup(gtin)` → found / not found, or
+  `ProviderUnavailableError`) and are listed in `CATALOGUE_PROVIDERS`, tried in order until one
+  finds the product. Changing provider means adding an adapter, not changing product code.
+  - `openfacts`: Open Food Facts API v2 with `product_type=all`, so beauty, pet food and general
+    products are served (or redirected to) by the right sister project. Free, no account; it
+    asks for an identifying User-Agent, sent as `Storiva/1.0 (CATALOGUE_CONTACT)`. Data is
+    community-contributed under the ODbL, so the UI names the source and licence and marks
+    values as unverified.
+  - `upcitemdb`: UPCitemdb's free plan (no account, about 100 lookups a day). Off by default;
+    its terms for commercial use were not confirmed. Its images come from arbitrary retailers
+    and are not used.
+- **Safety**: redirects are followed only within the four Open Facts domains; images are kept
+  only from their image servers (`images.open*facts.org`), and the product API rejects any
+  other image URL; requests time out after 5 s; each provider has an in-process request budget
+  below its published limit (Open Food Facts: 60/min against a published 100/min), and an
+  exhausted budget is reported as "unavailable" rather than queued.
+- **Cache** (`catalogue_entries`): one row per provider and GTIN. Found answers are reused for
+  30 days, not-found for 1 day; failures are never cached. The table holds only public
+  catalogue responses, never organization data, so it is shared between organizations.
+- **Lookup** (`GET /api/catalogue/lookup?code=&format=`) first checks the caller's inventory: an
+  existing product is returned instead of a draft (duplicate protection). Only retail barcodes
+  are sent to catalogues; internal codes are not. Limited to 30 lookups a minute per
+  organization. A catalogue answer never contains price, quantity or threshold.
+- **Products** store optional `brand`, `manufacturer`, `category`, `image_url`, and, when created
+  from a catalogue result, `catalogue_provider`, `catalogue_source_name` and
+  `catalogue_retrieved_at`. These are set on create only; edits change the values but keep the
+  record of where they first came from.
+- **Images** are shown from the catalogue's image server (CSP `img-src` lists exactly those
+  hosts), with `referrerpolicy="no-referrer"`, and stay hidden until they have loaded.
+
 ## 7. API reference
 
 All endpoints are under `/api`. Everything except health, signup, login and logout requires a
@@ -242,13 +276,15 @@ session.
 | DELETE | `/products/:id/barcodes/:barcodeId` | | product with its barcodes |
 | POST | `/stock/operations` | `productId`, `type` (`receive` / `issue` with `quantity`; `count` with `countedQuantity` and `expectedQuantity`), `source?`, `note?`, `idempotencyKey` | `201` movement and product; `200` with `replayed: true` for a repeated key |
 | GET | `/products/:id/movements?limit=` | | the product's recent stock movements, newest first |
+| GET | `/catalogue/lookup?code=&format=` | | `existing` product, or catalogue `matches` (with source, licence and retrieval time) and `unavailable` providers |
 | GET | `/settings` | | organization name and default threshold |
 | PUT | `/settings` | `defaultLowStockThreshold` | updated settings |
 
 Product fields: `name` (required), `sku` (required; letters, digits, `. _ - /`), `description`,
 `quantityOnHand` (required integer ≥ 0), `costPrice`, `sellingPrice` (non-negative, up to two
 decimals), `lowStockThreshold` (integer ≥ 0, or `null` for the organization default), and
-on create only `barcodes` (up to 10 codes).
+`brand`, `manufacturer`, `category`, `imageUrl` (catalogue image servers only), and on create only
+`barcodes` (up to 10 codes) and `catalogue` (`provider`, `sourceName`, `retrievedAt`).
 
 ## 7a. Scanner
 

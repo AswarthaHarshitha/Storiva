@@ -65,6 +65,23 @@ analytics.
 - Internal labels: Code 128 and QR generated from an internal identifier (`STV-…`), printable
   sheets, bulk printing. No invented GTINs.
 
+**Phase 2 status (4 November 2026):** product identification and Quick Add are complete; labels
+are not started.
+
+| Provider | Cost | Account | Limits | Commercial use | Decision |
+| --- | --- | --- | --- | --- | --- |
+| Open Food Facts family | Free | None (identifying User-Agent) | 100 product reads/min | Yes, ODbL: attribution, share-alike for derived databases | **Enabled** |
+| UPCitemdb | Free plan; paid from $99/month | None for the free plan | ~100 lookups/day | Not stated in the documentation reviewed | Adapter built, **off** until terms are confirmed |
+| Verified by GS1 | Not public | GS1 membership | — | Member terms | Not integrated |
+| Barcode Lookup, Go-UPC | Paid | Account and key | Per plan | Per plan | Not integrated |
+
+Verified with 201 API tests and 47 web unit tests, plus browser runs against the real Open Food
+Facts API: a camera scan of a retail barcode prefilled Quick Add; a valid barcode no catalogue
+knows and an internal code fell back to manual entry; an existing barcode was detected instead of
+duplicated; a second organization saw only catalogue data. The earlier walkthroughs still pass.
+Not verified: whether catalogue photos display, because the image server did not answer the
+automated browser; the URL and CSP were checked instead.
+
 ### Phase 3 — History, bulk and Trust Radar
 
 - History views over `stock_movements` (per product, per organization), with filters.

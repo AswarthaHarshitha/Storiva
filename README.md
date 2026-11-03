@@ -64,6 +64,12 @@ Every organization's data is isolated from every other organization's on the ser
   scanner, to find a product, receive or issue stock, record a physical count, or start a new
   product with its barcode filled in. EAN/UPC codes are check-digit validated and matched in
   any equivalent form; a product can have several barcodes.
+- **Product identification.** Scanning an unknown retail barcode looks it up in Open Food Facts
+  (and its sister catalogues for cosmetics, pet food and other products) and opens Quick Add with
+  the name, brand and photo filled in where the catalogue has them. Retrieved details are marked
+  as unverified community data with their source and licence, and can be corrected before
+  saving. Prices, quantity and threshold are always left to the user. If the catalogue has
+  nothing or cannot be reached, Quick Add works the same with empty fields.
 - **Stock history.** Every quantity change is recorded with who made it, how (manual, camera,
   scanner) and the quantity before and after. Repeated submissions are applied once, and a
   count is refused if the stock changed while it was being taken.
@@ -203,6 +209,8 @@ The API reads these from `server/.env` (see `server/.env.example`). The web app 
 | `PORT` | No | Port the API listens on (default `4000`; set by Render) | `4000` |
 | `NODE_ENV` | No | `development`, `test` or `production`. Production adds the `Secure` cookie flag, trusts the hosting proxy and serves the built web app | `development` |
 | `SESSION_TTL_DAYS` | No | Session lifetime in days, 1–90 (default `7`) | `7` |
+| `CATALOGUE_PROVIDERS` | No | Product catalogues for unknown barcodes, in order: `openfacts`, `upcitemdb`, or `none` (default `openfacts`). UPCitemdb's free plan is off by default until its commercial terms are confirmed | `openfacts` |
+| `CATALOGUE_CONTACT` | No | Identifies the application to catalogue providers in the User-Agent (default: the live site's URL) | `+https://example.com` |
 | `CLIENT_IP_HEADER` | No | Header holding the real client IP, set by the edge proxy; used by the login rate limiter. Leave unset locally; `cf-connecting-ip` on Render | `cf-connecting-ip` |
 
 The variables are validated at startup; the server refuses to start with a clear message if one
@@ -225,7 +233,7 @@ cp server/.env.test.example server/.env.test   # then set DATABASE_URL
 | `npm run lint` | ESLint, both workspaces |
 | `npm run build` | Production build of the web app and the API |
 
-The suite currently contains 169 API tests and 42 web unit tests. The API tests cover signup
+The suite currently contains 201 API tests and 47 web unit tests. The API tests cover signup
 (including concurrent duplicate signups), login, logout, replay of a logged-out session token,
 expired and forged sessions and every protected route; product validation and boundaries,
 duplicate SKUs (including concurrent creates), search, updates, deletion and concurrent stock
@@ -235,7 +243,9 @@ Barcode tests cover normalization and check digits, equivalent EAN/UPC forms, al
 duplicate and invalid codes, and isolation between organizations; stock tests cover receive,
 issue, counts against a changed quantity, idempotent and simultaneous requests, and ledger
 consistency. The web tests cover client-side validation, payload conversion, stock status, the
-stock adjustment calculation, product filtering and sorting, and scan de-duplication.
+stock adjustment calculation, product filtering and sorting, scan de-duplication, and how
+catalogue results become a product draft. Catalogue tests use recorded response shapes through an
+injected fake network; the automated suite never calls a real catalogue.
 
 ## Security
 
