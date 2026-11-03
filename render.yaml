@@ -1,0 +1,22 @@
+# Render Blueprint: one web service that runs the API and serves the built web app from the
+# same origin. The PostgreSQL database is hosted separately (e.g. Neon); paste its connection
+# string into DATABASE_URL when Render asks for it.
+services:
+  - type: web
+    name: storiva
+    runtime: node
+    plan: free
+    # NODE_ENV=production would make `npm ci` skip devDependencies, which the build needs.
+    buildCommand: npm ci --include=dev && npm run build
+    # Applies any pending migrations, then starts the server.
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: SESSION_TTL_DAYS
+        value: "7"
+      - key: DATABASE_URL
+        sync: false
