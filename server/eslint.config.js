@@ -16,6 +16,17 @@ export default tseslint.config(
     },
   },
   {
+    // Response bodies from supertest are untyped; tests assert on their shape directly.
+    files: ["test/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
+      "@typescript-eslint/no-unsafe-argument": "off",
+    },
+  },
+  {
     files: ["eslint.config.js"],
     ...tseslint.configs.disableTypeChecked,
   },
