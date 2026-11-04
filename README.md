@@ -86,6 +86,16 @@ Every organization's data is isolated from every other organization's on the ser
   scanner, to find a product, receive or issue stock, record a physical count, or start a new
   product with its barcode filled in. EAN/UPC codes are check-digit validated and matched in
   any equivalent form; a product can have several barcodes.
+  - The camera uses the browser's built-in barcode detector where there is one (Chrome and Edge
+    on Android, macOS and ChromeOS). Other browsers (Safari, Firefox, iOS) use ZXing, reading
+    the centre of the frame at full resolution and alternating with the whole frame.
+  - It asks for 1080p video and continuous focus, and shows a hint when a barcode looks
+    blurred.
+  - In testing, a small or slightly out-of-focus barcode that was previously never read is now
+    found in about a second.
+  - The **Barcode** field on Add product and the **Add a barcode** field on a product page have
+    a camera button. The code is filled in when read, and a barcode already on another product
+    is pointed out straight away.
 - **Product identification.** Scanning an unknown retail barcode looks it up in Open Food Facts
   (and its sister catalogues for cosmetics, pet food and other products) and opens Quick Add with
   the name, brand and photo filled in where the catalogue has them. Retrieved details are marked
@@ -173,7 +183,7 @@ advanced tools** turns them on for that device. On a phone they appear under the
 | Area | Technology |
 | --- | --- |
 | Frontend | React 19, TypeScript 5.9, Vite 7, Tailwind CSS 4, TanStack Query 5, React Router 7, Lucide icons |
-| Barcode decoding and label encoding | zxing-wasm (ZXing-C++ compiled to WebAssembly), in the browser |
+| Barcode decoding and label encoding | The browser's BarcodeDetector where available; zxing-wasm (ZXing-C++ compiled to WebAssembly) otherwise and for labels, in the browser |
 | Invoice text recognition | Tesseract.js 7 with the English model, self-hosted and run in the browser |
 | Offline | Service worker and IndexedDB |
 | Backend | Node.js (20.19 or newer; 22 in `.nvmrc`), Express 5, TypeScript 5.9 |
@@ -371,6 +381,9 @@ every page:
 
 - a 27-step walkthrough of the core features;
 - 15 camera-scanning steps using a recorded barcode video;
+- a scan-speed check that feeds sharp, small and slightly blurred barcodes to the camera, in
+  browsers with and without a built-in detector;
+- camera scanning on the product form, at desktop and phone widths;
 - 10 Quick Add steps against the real Open Food Facts catalogue;
 - 16 steps across the advanced tools. These decode printed labels back to the product, read an
   invoice image with OCR, sync an offline queue, detect an offline count conflict, and check that

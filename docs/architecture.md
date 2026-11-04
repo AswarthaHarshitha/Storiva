@@ -364,15 +364,26 @@ decimals), `lowStockThreshold` (integer ≥ 0, or `null` for the organization de
 
 `web/src/scanner/` and `web/src/pages/ScanPage.tsx`.
 
-- **Decoding** uses zxing-wasm (the WebAssembly build of ZXing-C++) entirely in the browser;
-  camera frames are never uploaded. The `.wasm` file is bundled and served from Storiva's own
-  origin instead of the library's default CDN, so the Content Security Policy only needs
-  `'wasm-unsafe-eval'` in addition to `'self'`. It is fetched the first time a frame is
-  decoded, so other pages never load it.
-- **Camera loop** (`useCameraScanner`): a frame is drawn to a canvas and decoded roughly every
-  120 ms, one at a time. Supports choosing among the device's cameras and the torch where the
-  browser exposes it. Permission and device failures produce specific messages, and the
-  barcode field is always available instead.
+- **Decoding** happens entirely in the browser, and camera frames are never uploaded.
+  `decoder.ts` uses the browser's `BarcodeDetector` where it exists and reads EAN-13 and Code 128
+  (Chrome and Edge on Android, macOS and ChromeOS); the operating system's engine handles small
+  and slightly blurred barcodes far better. Everywhere else it uses zxing-wasm, the WebAssembly
+  build of ZXing-C++. Format names from both are mapped to the same names. The `.wasm` file is
+  bundled and served from Storiva's own origin instead of the library's default CDN, so the
+  Content Security Policy only needs `'wasm-unsafe-eval'` in addition to `'self'`. It is fetched
+  the first time a frame is decoded, so other pages never load it.
+- **Camera loop** (`useCameraScanner`): one frame roughly every 100 ms, one at a time. With a
+  built-in detector, the video element is passed to it directly, and ZXing still runs every
+  fourth frame for formats the detector lacks. With ZXing, frames alternate between the centre
+  of the image (84% × 56%, at full resolution) and the whole image (at most 1280 px wide).
+  Shrinking the whole frame, as earlier versions did, left the bars of a small or distant
+  barcode too thin to read. The camera is asked for 1080p and continuous focus where supported.
+  It supports choosing among the device's cameras and the torch where the browser exposes it.
+  Permission and device failures produce specific messages, and the barcode field is always
+  available instead.
+- **Form scanning** (`ScanBarcodeButton`, `CameraScanDialog`): a camera button in a barcode
+  field opens the same scanner in a dialog. The dialog closes on the first read; its code is
+  loaded only when the button is used.
 - **Duplicate protection** (`ScanDeduplicator`): a code is reported once and then ignored while
   it stays in view; it is reported again only after being absent for 1.2 s. In normal use a scan
   also pauses the camera until the result is dealt with.
