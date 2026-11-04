@@ -4,6 +4,7 @@ import { errorMessage } from "../api/client";
 import type { Product } from "../api/types";
 import { Button } from "../components/Button";
 import { TextField } from "../components/TextField";
+import { ScanBarcodeButton } from "../scanner/ScanBarcodeButton";
 import { useToast } from "../components/Toast";
 import { useAttachBarcode, useRemoveBarcode } from "../hooks/useInventory";
 
@@ -72,6 +73,14 @@ export function ProductBarcodes({ product }: { product: Product }) {
               attach.reset();
             }}
             error={attach.isError ? errorMessage(attach.error) : undefined}
+            trailing={
+              <ScanBarcodeButton
+                onCode={(scannedCode) => {
+                  setCode(scannedCode);
+                  attach.reset();
+                }}
+              />
+            }
           />
           <Button type="submit" variant="secondary" className="mt-7" disabled={!code.trim()} loading={attach.isPending} loadingLabel="Adding…">
             Add

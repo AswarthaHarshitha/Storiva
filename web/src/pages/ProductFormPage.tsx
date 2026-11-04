@@ -14,7 +14,7 @@ import { useToast } from "../components/Toast";
 import { useAdvancedMode } from "../hooks/useAdvancedMode";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useForm } from "../hooks/useForm";
-import { useProduct, useSaveProduct, useSettings } from "../hooks/useInventory";
+import { lookupBarcode, useProduct, useSaveProduct, useSettings } from "../hooks/useInventory";
 import { formatRelativeTime, pluralize } from "../lib/format";
 import { CatalogueSourceNote } from "../products/CatalogueSourceNote";
 import { ProductImage } from "../products/ProductImage";
@@ -22,6 +22,7 @@ import { productFormSchema, toProductPayload, type ProductFormValues } from "../
 import { EvidencePanel, TrustPanel } from "../advanced/ProductInsights";
 import { DeleteProductDialog } from "../products/DeleteProductDialog";
 import { ProductBarcodes } from "../products/ProductBarcodes";
+import { ScanBarcodeButton } from "../scanner/ScanBarcodeButton";
 import { StockHistory } from "../products/StockHistory";
 
 const emptyValues: ProductFormValues = {
@@ -187,6 +188,27 @@ function ProductForm({ product, initialValues, draft }: ProductFormProps) {
   const settings = useSettings();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [imageUrl, setImageUrl] = useState(product ? product.imageUrl : (draft?.imageUrl ?? null));
+  const [scanNote, setScanNote] = useState<ReactNode>(null);
+
+  const scanned = (code: string, format: string) => {
+    form.setValue("barcode", code);
+    setScanNote(null);
+    // Say straight away if the code is already on another product, rather than when saving.
+    lookupBarcode(code, format).then(
+      (result) =>
+        result.product &&
+        setScanNote(
+          <span className="text-warn">
+            Already used by{" "}
+            <Link to={`/products/${result.product.id}/edit`} className="font-medium underline">
+              {result.product.name}
+            </Link>
+            .
+          </span>,
+        ),
+      () => undefined,
+    );
+  };
 
   const submit = form.handleSubmit((values, showServerErrors) => {
     if (save.isPending) return;
@@ -254,8 +276,13 @@ function ProductForm({ product, initialValues, draft }: ProductFormProps) {
             autoComplete="off"
             spellCheck={false}
             className="[&_input]:font-mono"
-            hint="Optional. Scan or type the product's barcode."
+            hint={scanNote ?? "Optional. Scan it with the camera button, or type it."}
+            trailing={<ScanBarcodeButton onCode={scanned} />}
             {...field("barcode")}
+            onValueChange={(value: string) => {
+              form.setValue("barcode", value);
+              setScanNote(null);
+            }}
           />
         )}
         <TextField label="Brand" autoComplete="off" {...field("brand")} />
