@@ -7,6 +7,7 @@ import { PageHeader } from "../components/PageHeader";
 import { QueryError } from "../components/QueryError";
 import { TextField } from "../components/TextField";
 import { useToast } from "../components/Toast";
+import { useAdvancedMode } from "../hooks/useAdvancedMode";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useForm } from "../hooks/useForm";
 import { useSaveSettings, useSettings } from "../hooks/useInventory";
@@ -30,6 +31,7 @@ export function SettingsPage() {
             <p className="mt-1 text-sm text-ink-muted">{settings.data.organizationName}</p>
           </section>
           <ThresholdForm settings={settings.data} />
+          <AdvancedToggle />
         </div>
       )}
     </>
@@ -87,5 +89,22 @@ function ThresholdForm({ settings }: { settings: Settings }) {
         </Button>
       </div>
     </form>
+  );
+}
+
+function AdvancedToggle() {
+  const [advanced, setAdvanced] = useAdvancedMode();
+  return (
+    <section className="px-5 py-5 sm:px-6">
+      <h2 className="text-sm font-semibold">Advanced tools</h2>
+      <p className="mt-1 mb-3 max-w-prose text-sm text-ink-muted">
+        Copilot, Trust Radar, exceptions, receiving, suppliers, import and export, labels, photo identification and reports. Off by
+        default to keep everyday scanning simple. This setting applies to this device.
+      </p>
+      <label className="inline-flex items-center gap-2 text-sm font-medium">
+        <input type="checkbox" role="switch" checked={advanced} onChange={(e) => setAdvanced(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
+        Show advanced tools
+      </label>
+    </section>
   );
 }

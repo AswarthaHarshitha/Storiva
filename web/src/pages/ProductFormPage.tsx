@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, Barcode, Trash2 } from "lucide-react";
 import { ApiError, errorMessage } from "../api/client";
 import type { Product } from "../api/types";
 import type { CatalogueDraft } from "../lib/catalogueDraft";
@@ -11,6 +11,7 @@ import { PageHeader } from "../components/PageHeader";
 import { QueryError } from "../components/QueryError";
 import { TextField } from "../components/TextField";
 import { useToast } from "../components/Toast";
+import { useAdvancedMode } from "../hooks/useAdvancedMode";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useForm } from "../hooks/useForm";
 import { useProduct, useSaveProduct, useSettings } from "../hooks/useInventory";
@@ -18,6 +19,7 @@ import { formatRelativeTime, pluralize } from "../lib/format";
 import { CatalogueSourceNote } from "../products/CatalogueSourceNote";
 import { ProductImage } from "../products/ProductImage";
 import { productFormSchema, toProductPayload, type ProductFormValues } from "../lib/validation";
+import { EvidencePanel, TrustPanel } from "../advanced/ProductInsights";
 import { DeleteProductDialog } from "../products/DeleteProductDialog";
 import { ProductBarcodes } from "../products/ProductBarcodes";
 import { StockHistory } from "../products/StockHistory";
@@ -84,6 +86,7 @@ export function EditProductPage() {
   const { id } = useParams();
   const product = useProduct(id);
   useDocumentTitle(product.data ? `Edit ${product.data.name}` : "Edit product");
+  const [advanced] = useAdvancedMode();
 
   if (product.isPending) {
     return (
@@ -116,9 +119,26 @@ export function EditProductPage() {
   return (
     <>
       {backLink}
-      <PageHeader title={product.data.name} description={<LastUpdated product={product.data} />} />
+      <PageHeader
+        title={product.data.name}
+        description={<LastUpdated product={product.data} />}
+        actions={
+          advanced ? (
+            <ButtonLink to={`/labels?ids=${product.data.id}`} variant="secondary">
+              <Barcode className="size-4" aria-hidden />
+              Print label
+            </ButtonLink>
+          ) : undefined
+        }
+      />
       <ProductForm key={product.data.id} product={product.data} initialValues={toFormValues(product.data)} />
       <ProductBarcodes product={product.data} />
+      {advanced && (
+        <>
+          <TrustPanel productId={product.data.id} />
+          <EvidencePanel productId={product.data.id} />
+        </>
+      )}
       <StockHistory productId={product.data.id} />
     </>
   );
