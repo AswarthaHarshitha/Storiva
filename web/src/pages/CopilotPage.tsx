@@ -90,7 +90,8 @@ export function CopilotPage() {
             </li>
           ))}
         </ol>
-        <div ref={endRef} />
+        {/* Leaves room for the sticky question box (and the phone tab bar) below the newest reply. */}
+        <div ref={endRef} className="scroll-mb-40 lg:scroll-mb-24" />
         <form onSubmit={submit} className="sticky bottom-20 flex gap-2 rounded-lg border border-line bg-surface p-2 shadow-sm lg:bottom-4">
           <label htmlFor="copilot-message" className="sr-only">
             Ask Copilot
