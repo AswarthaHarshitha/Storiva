@@ -1,16 +1,25 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, LogOut, Package, Settings } from "lucide-react";
+import { Ellipsis, LayoutDashboard, LogOut, Package, ScanLine, Settings } from "lucide-react";
 import type { Account } from "../api/types";
 import { useLogout } from "../hooks/useAccount";
+import { useAdvancedMode } from "../hooks/useAdvancedMode";
+import { advancedNavItems } from "./advancedNav";
 import { Wordmark } from "./Wordmark";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/products", label: "Products", icon: Package, end: false },
+  { to: "/scan", label: "Scan", icon: ScanLine, end: false },
   { to: "/settings", label: "Settings", icon: Settings, end: false },
 ];
 
+const linkClass = ({ isActive }: { isActive: boolean }) =>
+  `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+    isActive ? "bg-sunken text-ink" : "text-ink-muted hover:bg-sunken/60 hover:text-ink"
+  }`;
+
 export function AppLayout({ account }: { account: Account }) {
+  const [advanced, setAdvanced] = useAdvancedMode();
   const logout = useLogout();
   const navigate = useNavigate();
 
@@ -34,23 +43,35 @@ export function AppLayout({ account }: { account: Account }) {
             {account.organization.name}
           </p>
         </div>
-        <nav aria-label="Main" className="flex-1 space-y-0.5 p-3">
+        <nav aria-label="Main" className="flex-1 space-y-0.5 overflow-y-auto p-3">
           {navItems.map(({ to, label, icon: Icon, end }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                  isActive ? "bg-sunken text-ink" : "text-ink-muted hover:bg-sunken/60 hover:text-ink"
-                }`
-              }
-            >
+            <NavLink key={to} to={to} end={end} className={linkClass}>
               <Icon className="size-4" aria-hidden />
               {label}
             </NavLink>
           ))}
+          {advanced && (
+            <>
+              <p className="px-3 pt-4 pb-1 text-xs font-medium tracking-wide text-ink-faint uppercase">Advanced</p>
+              {advancedNavItems.map(({ to, label, icon: Icon }) => (
+                <NavLink key={to} to={to} className={linkClass}>
+                  <Icon className="size-4" aria-hidden />
+                  {label}
+                </NavLink>
+              ))}
+            </>
+          )}
         </nav>
+        <label className="mx-3 mb-2 flex cursor-pointer items-center justify-between gap-3 rounded-md px-3 py-2 text-sm text-ink-muted hover:bg-sunken/60">
+          Advanced tools
+          <input
+            type="checkbox"
+            role="switch"
+            checked={advanced}
+            onChange={(e) => setAdvanced(e.target.checked)}
+            className="size-4 accent-[var(--color-accent)]"
+          />
+        </label>
         <div className="border-t border-line p-3">
           <p className="truncate px-3 pb-2 text-xs text-ink-faint" title={account.email}>
             {account.email}
@@ -87,8 +108,8 @@ export function AppLayout({ account }: { account: Account }) {
         <Outlet />
       </main>
 
-      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-3 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
-        {navItems.map(({ to, label, icon: Icon, end }) => (
+      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
+        {(advanced ? [...navItems.slice(0, 3), { to: "/more", label: "More", icon: Ellipsis, end: false }] : navItems).map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}

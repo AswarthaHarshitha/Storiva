@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ArrowLeft, Barcode, Trash2 } from "lucide-react";
 import { ApiError, errorMessage } from "../api/client";
 import type { Product } from "../api/types";
+import type { CatalogueDraft } from "../lib/catalogueDraft";
 import { Alert } from "../components/Alert";
 import { Button, ButtonLink } from "../components/Button";
 import { LoadingState } from "../components/LoadingState";
@@ -10,17 +11,28 @@ import { PageHeader } from "../components/PageHeader";
 import { QueryError } from "../components/QueryError";
 import { TextField } from "../components/TextField";
 import { useToast } from "../components/Toast";
+import { useAdvancedMode } from "../hooks/useAdvancedMode";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useForm } from "../hooks/useForm";
-import { useProduct, useSaveProduct, useSettings } from "../hooks/useInventory";
+import { lookupBarcode, useProduct, useSaveProduct, useSettings } from "../hooks/useInventory";
 import { formatRelativeTime, pluralize } from "../lib/format";
+import { CatalogueSourceNote } from "../products/CatalogueSourceNote";
+import { ProductImage } from "../products/ProductImage";
 import { productFormSchema, toProductPayload, type ProductFormValues } from "../lib/validation";
+import { EvidencePanel, TrustPanel } from "../advanced/ProductInsights";
 import { DeleteProductDialog } from "../products/DeleteProductDialog";
+import { ProductBarcodes } from "../products/ProductBarcodes";
+import { ScanBarcodeButton } from "../scanner/ScanBarcodeButton";
+import { StockHistory } from "../products/StockHistory";
 
 const emptyValues: ProductFormValues = {
+  barcode: "",
   name: "",
   sku: "",
   description: "",
+  brand: "",
+  manufacturer: "",
+  category: "",
   quantityOnHand: "",
   lowStockThreshold: "",
   costPrice: "",
@@ -28,9 +40,13 @@ const emptyValues: ProductFormValues = {
 };
 
 const toFormValues = (product: Product): ProductFormValues => ({
+  barcode: "",
   name: product.name,
   sku: product.sku,
   description: product.description ?? "",
+  brand: product.brand ?? "",
+  manufacturer: product.manufacturer ?? "",
+  category: product.category ?? "",
   quantityOnHand: String(product.quantityOnHand),
   lowStockThreshold: product.lowStockThreshold === null ? "" : String(product.lowStockThreshold),
   costPrice: product.costPrice ?? "",
@@ -46,11 +62,23 @@ const backLink = (
 
 export function NewProductPage() {
   useDocumentTitle("Add product");
+  const [params] = useSearchParams();
+  const scanned = params.get("barcode")?.slice(0, 200) ?? "";
+  // Quick Add passes what it has already retrieved and typed when the user opens this full form.
+  const draft = (useLocation().state as { draft?: CatalogueDraft } | null)?.draft;
+  const fromDraft = draft && draft.values.barcode === scanned ? draft : undefined;
   return (
     <>
       {backLink}
-      <PageHeader title="Add product" description="Add an item you stock. You can change any of this later." />
-      <ProductForm initialValues={emptyValues} />
+      <PageHeader
+        title="Add product"
+        description={
+          scanned
+            ? "The barcode you scanned is filled in. Add the details you know; you can change any of this later."
+            : "Add an item you stock. You can change any of this later."
+        }
+      />
+      <ProductForm initialValues={fromDraft?.values ?? { ...emptyValues, barcode: scanned }} draft={fromDraft} />
     </>
   );
 }
@@ -59,6 +87,7 @@ export function EditProductPage() {
   const { id } = useParams();
   const product = useProduct(id);
   useDocumentTitle(product.data ? `Edit ${product.data.name}` : "Edit product");
+  const [advanced] = useAdvancedMode();
 
   if (product.isPending) {
     return (
@@ -91,8 +120,27 @@ export function EditProductPage() {
   return (
     <>
       {backLink}
-      <PageHeader title={product.data.name} description={<LastUpdated product={product.data} />} />
-      <ProductForm key={product.data.updatedAt} product={product.data} initialValues={toFormValues(product.data)} />
+      <PageHeader
+        title={product.data.name}
+        description={<LastUpdated product={product.data} />}
+        actions={
+          advanced ? (
+            <ButtonLink to={`/labels?ids=${product.data.id}`} variant="secondary">
+              <Barcode className="size-4" aria-hidden />
+              Print label
+            </ButtonLink>
+          ) : undefined
+        }
+      />
+      <ProductForm key={product.data.id} product={product.data} initialValues={toFormValues(product.data)} />
+      <ProductBarcodes product={product.data} />
+      {advanced && (
+        <>
+          <TrustPanel productId={product.data.id} />
+          <EvidencePanel productId={product.data.id} />
+        </>
+      )}
+      <StockHistory productId={product.data.id} />
     </>
   );
 }
@@ -103,6 +151,13 @@ function LastUpdated({ product }: { product: Product }) {
       Last updated {formatRelativeTime(product.updatedAt)}
       {product.lastUpdatedBy && <> by {product.lastUpdatedBy}</>}
       {product.lastAdjustmentNote && <> · Last stock note: “{product.lastAdjustmentNote}”</>}
+      {product.catalogue && (
+        <>
+          <br />
+          Details first filled from {product.catalogue.sourceName} on{" "}
+          {new Date(product.catalogue.retrievedAt).toLocaleDateString()}.
+        </>
+      )}
     </>
   );
 }
@@ -119,23 +174,58 @@ function Section({ title, description, children }: { title: string; description:
   );
 }
 
-function ProductForm({ product, initialValues }: { product?: Product; initialValues: ProductFormValues }) {
+interface ProductFormProps {
+  product?: Product;
+  initialValues: ProductFormValues;
+  draft?: CatalogueDraft;
+}
+
+function ProductForm({ product, initialValues, draft }: ProductFormProps) {
   const navigate = useNavigate();
   const toast = useToast();
   const form = useForm(productFormSchema, initialValues);
   const save = useSaveProduct(product?.id);
   const settings = useSettings();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [imageUrl, setImageUrl] = useState(product ? product.imageUrl : (draft?.imageUrl ?? null));
+  const [scanNote, setScanNote] = useState<ReactNode>(null);
+
+  const scanned = (code: string, format: string) => {
+    form.setValue("barcode", code);
+    setScanNote(null);
+    // Say straight away if the code is already on another product, rather than when saving.
+    lookupBarcode(code, format).then(
+      (result) =>
+        result.product &&
+        setScanNote(
+          <span className="text-warn">
+            Already used by{" "}
+            <Link to={`/products/${result.product.id}/edit`} className="font-medium underline">
+              {result.product.name}
+            </Link>
+            .
+          </span>,
+        ),
+      () => undefined,
+    );
+  };
 
   const submit = form.handleSubmit((values, showServerErrors) => {
     if (save.isPending) return;
-    save.mutate(toProductPayload(values), {
+    // The catalogue source is recorded once, when the product is created.
+    const payload = { ...toProductPayload(values), imageUrl, ...(product ? {} : { catalogue: draft?.source ?? null }) };
+    save.mutate(payload, {
       onSuccess: (saved) => {
         toast(product ? `Saved changes to ${saved.name}.` : `${saved.name} was added.`);
         void navigate("/products");
       },
       onError: (error) => {
-        if (error instanceof ApiError && Object.keys(error.fields).length > 0) showServerErrors(error.fields);
+        if (error instanceof ApiError && Object.keys(error.fields).length > 0) {
+          // The API reports barcode problems as "barcode" or "barcodes.0"; the form has one field.
+          const { barcode, "barcodes.0": firstBarcode, ...rest } = error.fields;
+          const barcodeError = barcode ?? firstBarcode;
+          showServerErrors(barcodeError ? { ...rest, barcode: barcodeError } : rest);
+        }
       },
     });
   });
@@ -163,9 +253,41 @@ function ProductForm({ product, initialValues }: { product?: Product; initialVal
       )}
 
       <Section title="Details" description="How the product is named and identified.">
+        {(imageUrl || draft?.match) && (
+          <div className="flex items-start gap-3 sm:col-span-2">
+            {imageUrl && <ProductImage url={imageUrl} alt={form.values.name || "Product photo"} />}
+            <div className="min-w-0 space-y-1.5">
+              {draft?.match && <CatalogueSourceNote match={draft.match} />}
+              {imageUrl && (
+                <button type="button" onClick={() => setImageUrl(null)} className="text-xs font-medium text-ink-muted underline hover:text-ink">
+                  Remove photo
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         <TextField label="Name" required autoComplete="off" className="sm:col-span-2" {...field("name")} />
         <TextField label="SKU" required autoComplete="off" spellCheck={false} hint="Unique within your inventory." {...field("sku")} />
-        <div className="hidden sm:block" />
+        {product ? (
+          <div className="hidden sm:block" />
+        ) : (
+          <TextField
+            label="Barcode"
+            autoComplete="off"
+            spellCheck={false}
+            className="[&_input]:font-mono"
+            hint={scanNote ?? "Optional. Scan it with the camera button, or type it."}
+            trailing={<ScanBarcodeButton onCode={scanned} />}
+            {...field("barcode")}
+            onValueChange={(value: string) => {
+              form.setValue("barcode", value);
+              setScanNote(null);
+            }}
+          />
+        )}
+        <TextField label="Brand" autoComplete="off" {...field("brand")} />
+        <TextField label="Manufacturer" autoComplete="off" {...field("manufacturer")} />
+        <TextField label="Category" autoComplete="off" className="sm:col-span-2" {...field("category")} />
         <TextField label="Description" multiline className="sm:col-span-2" {...field("description")} />
       </Section>
 

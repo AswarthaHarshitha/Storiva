@@ -17,8 +17,20 @@ export interface Product {
   isLowStock: boolean;
   lastAdjustmentNote: string | null;
   lastUpdatedBy: string | null;
+  brand: string | null;
+  manufacturer: string | null;
+  category: string | null;
+  imageUrl: string | null;
+  catalogue: CatalogueSource | null;
+  barcodes: ProductBarcode[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProductBarcode {
+  id: string;
+  code: string;
+  kind: "gtin" | "other";
 }
 
 export interface ProductPayload {
@@ -29,6 +41,18 @@ export interface ProductPayload {
   costPrice: string | null;
   sellingPrice: string | null;
   lowStockThreshold: number | null;
+  brand: string | null;
+  manufacturer: string | null;
+  category: string | null;
+  imageUrl?: string | null;
+  catalogue?: CatalogueSource | null;
+  barcodes?: string[];
+}
+
+export interface CatalogueSource {
+  provider: string;
+  sourceName: string;
+  retrievedAt: string;
 }
 
 export interface LowStockItem {
@@ -52,4 +76,63 @@ export interface Dashboard {
 export interface Settings {
   organizationName: string;
   defaultLowStockThreshold: number;
+}
+
+export interface BarcodeLookup {
+  code: string;
+  kind: "gtin" | "other";
+  matchedBy: "barcode" | "sku" | null;
+  product: Product | null;
+}
+
+export type StockMovementType = "create" | "edit" | "adjust" | "receive" | "issue" | "count";
+export type StockMovementSource = "manual" | "camera" | "scanner";
+
+export interface StockMovement {
+  id: string;
+  type: StockMovementType;
+  source: StockMovementSource;
+  quantityBefore: number;
+  quantityChange: number;
+  quantityAfter: number;
+  note: string | null;
+  user: string | null;
+  createdAt: string;
+}
+
+export type StockOperationRequest = {
+  productId: string;
+  source: StockMovementSource;
+  note: string | null;
+  idempotencyKey: string;
+} & ({ type: "receive" | "issue"; quantity: number } | { type: "count"; countedQuantity: number; expectedQuantity: number });
+
+export interface StockOperationResult {
+  movement: StockMovement;
+  product: Product;
+  replayed: boolean;
+}
+
+export interface CatalogueMatch {
+  provider: string;
+  providerName: string;
+  sourceName: string;
+  sourceUrl: string;
+  licence: { name: string; url: string } | null;
+  retrievedAt: string;
+  name: string | null;
+  brand: string | null;
+  description: string | null;
+  manufacturer: string | null;
+  category: string | null;
+  imageUrl: string | null;
+}
+
+export interface CatalogueLookup {
+  code: string;
+  kind: "gtin" | "other";
+  existing: Product | null;
+  checkedCatalogues: boolean;
+  matches: CatalogueMatch[];
+  unavailable: { provider: string; providerName: string }[];
 }

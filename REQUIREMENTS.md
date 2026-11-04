@@ -3,6 +3,16 @@
 Source documents: the *Phase 1 – 6-Hour MVP PRD* for the inventory application and the
 *Technical Assessment Instructions*.
 
+This document records how the **original assessment submission** met those requirements. That
+version is preserved at commit
+[`ec8291a`](https://github.com/AswarthaHarshitha/Storiva/tree/ec8291a). The implementation notes,
+test counts, dates and commits below describe that version. For example, stock adjustments
+have since moved from a single conditional `UPDATE` to the locked stock ledger described in
+[docs/architecture.md](docs/architecture.md). Storiva has since grown beyond the PRD: scanning, a stock ledger,
+CSV import, suppliers and other tools. The [README](README.md) describes the current
+application. Every requirement below still holds in the current version and is covered by its
+test suite.
+
 A requirement is marked **Done** only when it has been exercised end to end, not when its screen
 exists. Two kinds of verification are referenced:
 
@@ -99,6 +109,12 @@ Small additions that support the required workflows without adding new data or A
 
 ## Out of scope (PRD §4)
 
-Not implemented, by design: multi-warehouse, variants, categories, images, channel integrations,
-orders and reservations, purchase orders and suppliers, email notifications, CSV import, external
-API access, roles and invitations, audit logs and movement history, billing.
+Not implemented in the assessment submission, by design: multi-warehouse, variants, categories,
+images, channel integrations, orders and reservations, purchase orders and suppliers, email
+notifications, CSV import, external API access, roles and invitations, audit logs and movement
+history, billing.
+
+Later releases added some of these outside the assessment's scope: categories, catalogue images,
+suppliers and receiving, CSV import and export, and a stock movement ledger with field-level
+evidence. Multi-warehouse, variants, channel integrations, orders, email notifications, roles,
+external API access and billing remain unimplemented.

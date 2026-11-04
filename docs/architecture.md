@@ -25,8 +25,9 @@ same-origin behaviour.
 
 `server/src/routes/index.ts` maps each URL to a controller. A request passes through:
 
-1. **Global middleware** (`app.ts`): `helmet` security headers, `express.json` with a 20 kB
-   limit, `cookie-parser`, and `Cache-Control: no-store` on all API responses.
+1. **Global middleware** (`app.ts`): `helmet` security headers, `express.json` (5 MB for
+   `/api/imports`, 256 kB for `/api/receipts`, 20 kB everywhere else), `cookie-parser`, and
+   `Cache-Control: no-store` on all API responses.
 2. **`requireAuth`** (`middleware/requireAuth.ts`) on every route except health, signup, login
    and logout. It reads the `storiva_session` cookie, looks the session up, and sets
    `req.auth = { sessionId, userId, organizationId }`. No valid session means `401`.
@@ -54,39 +55,65 @@ no try/catch boilerplate.
 | 400 | Body is not valid JSON |
 | 401 | No valid session, or wrong email/password |
 | 404 | Resource does not exist **or belongs to another organization** |
-| 409 | Duplicate email or duplicate SKU |
+| 409 | Duplicate email, SKU or barcode; `QUANTITY_CHANGED` when stock changed since it was shown; a receipt already confirmed |
 | 422 | Validation failed; `fields` maps each field to a message |
-| 429 | Too many login/signup attempts from one address |
+| 429 | Rate limit reached (login and signup, Copilot, catalogue lookups) |
 
 ## 3. Data model
 
-Defined in `server/prisma/schema.prisma`; the SQL is in
-`server/prisma/migrations/20261103061908_init/migration.sql`.
+Defined in `server/prisma/schema.prisma`. Four migrations in `server/prisma/migrations` build it,
+each additive:
+
+| Migration | Adds |
+| --- | --- |
+| `20261103061908_init` | `organizations`, `users`, `sessions`, `products` |
+| `20261103131351_barcodes_and_stock_movements` | `product_barcodes`, `stock_movements` |
+| `20261104090000_product_catalogue_details` | `catalogue_entries`; brand, manufacturer, category, image and catalogue source columns on `products` |
+| `20261105090000_evidence_suppliers_receiving_imports_exceptions` | `product_evidence`, `suppliers`, `receipts`, `receipt_lines`, `import_batches`, `inventory_exceptions` |
 
 ```
 organizations 1 ──< users 1 ──< sessions
       1
-      └──< products >── 0..1 users (last_updated_by)
+      ├──< products 1 ──< product_barcodes
+      │        1 ──< stock_movements          (product set to NULL on delete; snapshot kept)
+      │        1 ──< product_evidence
+      ├──< suppliers 1 ──< receipts 1 ──< receipt_lines >── 0..1 products
+      ├──< import_batches
+      └──< inventory_exceptions >── 0..1 products
+
+catalogue_entries   (public catalogue answers; not tied to an organization)
 ```
 
 | Table | Key columns | Notes |
 | --- | --- | --- |
 | `organizations` | `id`, `name`, `default_low_stock_threshold` (default 5) | One per signup; holds the org-wide setting |
-| `users` | `id`, `email` (unique, lower-case), `password_hash`, `organization_id` | One owner per organization in this version |
+| `users` | `id`, `email` (unique, lower-case), `password_hash`, `organization_id` | One owner per organization |
 | `sessions` | `token_hash` (unique), `user_id`, `expires_at` | SHA-256 of the cookie token, never the token itself |
-| `products` | `organization_id`, `name`, `sku`, `description`, `quantity_on_hand`, `cost_price`, `selling_price`, `low_stock_threshold`, `last_updated_by_id`, `last_adjustment_note`, timestamps | |
+| `products` | `organization_id`, `name`, `sku`, `description`, `brand`, `manufacturer`, `category`, `quantity_on_hand`, `cost_price`, `selling_price`, `low_stock_threshold`, `image_url`, catalogue source, `last_updated_by_id`, `last_adjustment_note`, timestamps | |
+| `product_barcodes` | `product_id`, `code` (normalized), `raw_code`, `kind` | Unique per organization |
+| `stock_movements` | `product_id`, `type`, `source`, quantity before/change/after, `user_id`, `note`, `idempotency_key`, reference | Append-only ledger; see §6 |
+| `catalogue_entries` | `provider`, `code` (GTIN), `found`, `data`, source name and URL, `fetched_at` | Cache; see §6b |
+| `product_evidence` | `product_id`, `field`, `value`, `source`, `status`, reference, `user_id` | Append-only; see §6c |
+| `suppliers`, `receipts`, `receipt_lines` | supplier, status (`draft` / `confirmed`), expected/received/damaged quantities, unit cost | See §6c |
+| `import_batches` | `file_name`, created/updated/adjusted/skipped counts, `errors`, `user_id` | One per committed import |
+| `inventory_exceptions` | `type`, `dedupe_key` (unique per organization), `product_id`, `title`, `detail`, `status`, `resolution_note`, resolver | See §6c |
 
 Constraints enforced by the database itself, so they hold even if application code is wrong:
 
 - `UNIQUE (organization_id, lower(sku))`: SKUs are unique within an organization, ignoring case.
   Two organizations can use the same SKU. Prisma cannot express an index on `lower()`, so it is
   written in the migration SQL.
-- `CHECK` constraints: quantity, thresholds and prices cannot be negative; names and SKUs
-  cannot be blank; emails must be stored lower-case.
-- Foreign keys with `ON DELETE CASCADE` from organization to users/products and user to
-  sessions; `last_updated_by_id` is set to `NULL` if that user is ever removed.
-- Indexes on `products (organization_id, name)` for listing/search and on `sessions (user_id)`
-  and `sessions (expires_at)`.
+- `CHECK` constraints: quantities, thresholds and prices cannot be negative; names and SKUs
+  cannot be blank; emails are stored lower-case; a ledger row's before + change must equal
+  after; a receipt line cannot have more damaged than received units.
+- Composite foreign keys `(product_id, organization_id)` on barcodes, evidence, exceptions and
+  receipt lines (and `(receipt_id, organization_id)` on receipt lines), so no row can refer to
+  another organization's product or receipt.
+- Foreign keys with `ON DELETE CASCADE` from an organization to everything it owns, and from a
+  user to their sessions; `last_updated_by_id` and ledger `user_id` are set to `NULL` if that
+  user is removed.
+- Indexes for listing and search (`products (organization_id, name)`), ledger history
+  (`stock_movements (organization_id, product_id, created_at)`) and session expiry.
 
 **Money.** Prices are `DECIMAL(12,2)` in PostgreSQL and travel through the API as strings such as
 `"12.50"`. They are never converted to a JavaScript float on the server, so no rounding error can
@@ -147,7 +174,9 @@ organization's data.
 1. **The organization comes only from the session.** `requireAuth` reads `organizationId` from
    the session's user row. Request bodies are parsed with zod schemas that do not include an
    `organizationId` field, so a value sent by the client is discarded.
-2. **Every product query includes it in the `WHERE` clause** (`services/productService.ts`):
+2. **Every query includes it in the `WHERE` clause.** Products are shown below; barcodes, stock
+   operations, evidence, trust, exceptions, imports, reports, suppliers, receipts and the
+   Copilot follow the same pattern in their services:
 
    | Operation | Query |
    | --- | --- |
@@ -165,10 +194,15 @@ organization's data.
    rather than `403`, which avoids confirming that an ID exists.
 4. **Malformed IDs** also return `404` instead of reaching the database.
 
+5. **The database backs this up.** Composite foreign keys that include `organization_id` (§3)
+   make it impossible to attach a barcode, evidence row, exception or receipt line to another
+   organization's product, even through an application bug.
+
 `server/test/tenantIsolation.test.ts` creates two organizations and verifies that organization A
 cannot list, search, read, update, adjust or delete organization B's product, that B's row is
 unchanged afterwards, that a forged `organizationId` in a request body is ignored, and that
-dashboards and settings stay separate.
+dashboards and settings stay separate. The barcode, stock and advanced-tool test files repeat
+these checks for their own resources.
 
 **SQL injection.** All queries go through Prisma's parameterised API. The one raw query (the
 low-stock list) uses Prisma's `$queryRaw` tagged template, which sends values as bind parameters.
@@ -179,14 +213,133 @@ low-stock list) uses Prisma's `$queryRaw` tagged template, which sends values as
   The same rule is computed in SQL for the dashboard and in `productService.toView` for the
   product list (`effectiveThreshold`, `isLowStock`). A product at zero is shown as
   "Out of stock" and still counts as low stock.
-- **Stock adjustment** (`POST /api/products/:id/adjust-stock`) is a single conditional
-  `UPDATE ... SET quantity_on_hand = quantity_on_hand + delta WHERE quantity_on_hand >= -delta`.
-  Concurrent adjustments therefore cannot overwrite each other or push stock below zero; a test
-  fires 15 simultaneous `-1` adjustments at 10 units and checks that exactly 10 succeed. Each
-  adjustment records who made it and an optional note (`last_updated_by_id`,
-  `last_adjustment_note`); there is deliberately no movement history (out of scope).
+- **Every quantity change** (create, edit, quick adjust, receive, issue, count) locks the
+  product row (`SELECT … FOR UPDATE`), changes the quantity and appends a `stock_movements` row
+  in one transaction. Concurrent changes are applied one after another, so they cannot
+  overwrite each other or push stock below zero, and every ledger row starts exactly where the
+  previous one ended (tested with simultaneous operations).
+- **Stock ledger** (`stock_movements`): type (`create`, `edit`, `adjust`, `receive`, `issue`,
+  `count`), source (`manual`, `camera`, `scanner`, `import`, `receiving`, `copilot`), quantity
+  before, change and after, user, note, and a snapshot of the product's SKU and name so history
+  stays readable after a product is deleted. CHECK constraints reject a row whose arithmetic
+  does not add up or that describes negative stock. History starts when the ledger was
+  introduced; nothing is reconstructed for earlier changes.
+- **Receive / issue / count** (`POST /api/stock/operations`):
+  - Issue never takes stock below zero.
+  - A count carries the quantity the user saw (`expectedQuantity`). If stock changed in the
+    meantime the count is refused with `409 QUANTITY_CHANGED` and the current figure, so a
+    count never silently overwrites a newer change.
+  - Every request carries an idempotency key (unique per organization). A repeat of an applied
+    key returns the original result with `replayed: true`. If two identical requests arrive at
+    once, the unique index makes one transaction fail and roll back, and that request then
+    returns the winner's result.
 - **Last updated by**: every create, edit and adjustment stores the acting user, shown on the
   edit page with the timestamp.
+
+## 6a. Barcodes
+
+- A product can carry several barcodes (`product_barcodes`), unique per organization. A
+  composite foreign key `(product_id, organization_id)` guarantees in the database that a
+  barcode belongs to a product of the same organization.
+- **Normalization** (`server/src/lib/barcode.ts`): EAN-8, EAN-13, UPC-A, UPC-E, ITF-14 and
+  ISBN codes are validated with the GS1 check digit and stored in one canonical form. UPC-A
+  and GTIN-14 with indicator 0 become GTIN-13, and UPC-E is expanded first. So one item
+  matches whichever way its code is printed or reported. Other symbologies (Code 128, Code 39,
+  QR, Data Matrix, …) are stored exactly as read. Format names are matched on letters and
+  digits, so the decoder's `EAN13` and a label's `EAN-13` are the same. Without a format (typed
+  or from a hardware scanner), an 8-digit number is read as EAN-8.
+- **Lookup** (`GET /api/barcodes/lookup?code=&format=`) searches only the caller's
+  organization: registered barcodes first, then an exact, case-insensitive SKU match. The same
+  barcode can be registered independently by different organizations, and one organization
+  can never see another's.
+
+## 6b. Product catalogues
+
+`server/src/catalogue/`. Used only to prefill a new product; nothing is saved without the user.
+
+- **Providers** implement one interface (`lookup(gtin)` → found / not found, or
+  `ProviderUnavailableError`) and are listed in `CATALOGUE_PROVIDERS`, tried in order until one
+  finds the product. Changing provider means adding an adapter, not changing product code.
+  - `openfacts`: Open Food Facts API v2 with `product_type=all`, so beauty, pet food and general
+    products are served (or redirected to) by the right sister project. Free, no account; it
+    asks for an identifying User-Agent, sent as `Storiva/1.0 (CATALOGUE_CONTACT)`. Data is
+    community-contributed under the ODbL, so the UI names the source and licence and marks
+    values as unverified.
+  - `upcitemdb`: UPCitemdb's free plan (no account, about 100 lookups a day). Off by default;
+    its terms for commercial use were not confirmed. Its images come from arbitrary retailers
+    and are not used.
+- **Safety**: redirects are followed only within the four Open Facts domains; images are kept
+  only from their image servers (`images.open*facts.org`), and the product API rejects any
+  other image URL; requests time out after 5 s; each provider has an in-process request budget
+  below its published limit (Open Food Facts: 60/min against a published 100/min), and an
+  exhausted budget is reported as "unavailable" rather than queued.
+- **Cache** (`catalogue_entries`): one row per provider and GTIN. Found answers are reused for
+  30 days, not-found for 1 day; failures are never cached. The table holds only public
+  catalogue responses, never organization data, so it is shared between organizations.
+- **Lookup** (`GET /api/catalogue/lookup?code=&format=`) first checks the caller's inventory: an
+  existing product is returned instead of a draft (duplicate protection). Only retail barcodes
+  are sent to catalogues; internal codes are not. Limited to 30 lookups a minute per
+  organization. A catalogue answer never contains price, quantity or threshold.
+- **Products** store optional `brand`, `manufacturer`, `category`, `image_url`, and, when created
+  from a catalogue result, `catalogue_provider`, `catalogue_source_name` and
+  `catalogue_retrieved_at`. These are set on create only; edits change the values but keep the
+  record of where they first came from.
+- **Images** are shown from the catalogue's image server (CSP `img-src` lists exactly those
+  hosts), with `referrerpolicy="no-referrer"`, and stay hidden until they have loaded.
+
+## 6c. Advanced inventory
+
+Migration `20261105090000_evidence_suppliers_receiving_imports_exceptions` adds six tables:
+`product_evidence`, `suppliers`, `receipts`, `receipt_lines`, `import_batches` and
+`inventory_exceptions`. It also adds three stock-movement sources: `import`, `receiving` and
+`copilot`. The migration only adds; it changes no existing column or row. It was rehearsed on a
+copy of the production data before deployment: the product rows were checksummed before and
+after and matched.
+
+- **Every quantity change uses the ledger.** Imports, confirmed receipts and Copilot changes
+  call the same `applyWithin(tx, …)` as the scanner and product page. It locks the product row,
+  writes a `stock_movements` row with the quantity before and after, and honours the idempotency
+  key. The `adjust` operation carries the quantity the user saw (`expectedQuantity`) and fails
+  with `409 QUANTITY_CHANGED` if it no longer matches.
+- **Evidence** is written whenever a tracked field (name, brand, manufacturer, category,
+  description, cost price, selling price) changes. It records the source (manual, import, catalogue
+  or receipt), a reference, and who made the change. A field changed before tracking began has no
+  row and is shown as unknown.
+- **Trust** is computed when requested from the ledger (`server/src/lib/trust.ts`), and nothing
+  is stored. A product is *unverified* if it has never been counted. It is *low* if any of these
+  hold: it was last counted more than 90 days ago; its last count differed from the system and
+  has not been re-checked; it has had 3 or more manual corrections since that count; or most of
+  its recent counts found a difference. It is *medium* if it was counted more than 30 days ago, has
+  had 1 or 2 corrections since, or a minority of recent counts differed. Otherwise it is *high*.
+  Every rule that applies is listed as a reason.
+- **Exceptions** are detected when the list is opened (`exceptionService.detectExceptions`) and
+  stored with a unique key per cause, so the same problem is never listed twice. Causes that
+  disappear, such as a recount that agrees or a price that has been filled in, close themselves
+  with a note saying why.
+- **Receiving.** A receipt stays a draft until it is confirmed. Confirmation locks the receipt row,
+  refuses a second confirmation, and receives `received − damaged` units for each line linked to
+  a product. If the user ticked "update cost price", it also updates the cost, with the receipt
+  as the evidence. CHECK constraints keep `damaged ≤ received` and all quantities non-negative.
+- **Copilot** (`server/src/lib/copilotIntent.ts`, `copilotService.ts`) maps a message to one of
+  a fixed set of intents with regular expressions. Questions are answered from queries. A stock
+  command resolves the product by exact SKU or barcode, or by word similarity with a stated
+  confidence, and returns a proposal. The service never writes; the browser applies a confirmed
+  proposal through `POST /stock/operations` and then reads the product back.
+- **Matching** (`server/src/lib/textMatch.ts`) ranks products against text: an exact SKU or
+  barcode first, then word similarity. As a last resort it compares names with spacing and
+  OCR look-alike characters ignored; such matches are rated *medium* at most, so they are
+  offered, never chosen automatically.
+- **Tenant integrity.** Evidence, exceptions and receipt lines reference products and receipts
+  through composite foreign keys `(id, organization_id)`. These keys and their unique indexes
+  are written by hand in the migration, because Prisma cannot express them. For the same reason
+  `prisma migrate diff` lists them as differences; they are intended.
+
+In the browser, the advanced pages are loaded only when opened, which keeps the main bundle at
+about 460 kB. Labels are SVG images encoded by zxing-wasm. OCR uses Tesseract.js, with its worker,
+cores and English model copied into `web/public/ocr` at build time and served by Storiva itself.
+The offline queue lives in IndexedDB (`web/src/offline/`). On reconnect each operation is sent
+with its original idempotency key. The response is classified as applied, already applied,
+conflict (needs review, reported to `/exceptions/sync-failures`) or retry later.
 
 ## 7. API reference
 
@@ -206,13 +359,75 @@ session.
 | GET | `/products/:id` | | product |
 | PUT | `/products/:id` | all product fields | updated product |
 | POST | `/products/:id/adjust-stock` | `delta` (non-zero integer), `note?` | updated product |
-| DELETE | `/products/:id` | | `204` |
+| DELETE | `/products/:id` | | `204`; its barcodes are removed, its ledger rows keep a snapshot |
+| GET | `/barcodes/lookup?code=&format=` | | normalized code and the matching product, or `product: null` |
+| POST | `/products/:id/barcodes` | `code`, `format?` | `201` product with its barcodes |
+| DELETE | `/products/:id/barcodes/:barcodeId` | | product with its barcodes |
+| POST | `/stock/operations` | `productId`, `type` (`receive` / `issue` with `quantity`; `count` with `countedQuantity` and `expectedQuantity`), `source?`, `note?`, `idempotencyKey` | `201` movement and product; `200` with `replayed: true` for a repeated key |
+| GET | `/products/:id/movements?limit=` | | the product's recent stock movements, newest first |
+| GET | `/catalogue/lookup?code=&format=` | | `existing` product, or catalogue `matches` (with source, licence and retrieval time) and `unavailable` providers |
 | GET | `/settings` | | organization name and default threshold |
 | PUT | `/settings` | `defaultLowStockThreshold` | updated settings |
+| GET | `/products/export.csv` | | every product with its barcodes, as CSV (formula cells neutralised) |
+| GET | `/products/:id/evidence` | | origin of each tracked field, and how the quantity was last verified |
+| POST | `/products/:id/evidence/verify` | `field` | records that a person checked the field's current value |
+| GET | `/products/:id/trust` | | the product's trust level, reasons and recommendation |
+| GET | `/trust` | | trust level for every product, a summary and the count-next queue |
+| POST | `/imports/preview` | `fileName`, `rows` (up to 5,000 mapped rows) | the plan for each row (create, update, unchanged, error); writes nothing |
+| POST | `/imports` | same as preview | `201` result; one transaction, errors recorded in an import batch |
+| GET | `/exceptions?status=` | | open or closed exceptions with their evidence, and open counts by type |
+| POST | `/exceptions/:id/resolve` | `status` (`resolved` / `dismissed`), `note` | the closed exception |
+| POST | `/exceptions/sync-failures` | the rejected offline operation | records it as an exception |
+| GET | `/reports` | | valuation, slow-moving products and correction summary |
+| POST | `/simulate` | `productId` and a scenario | actual and hypothetical figures; never changes stock |
+| GET, POST | `/suppliers` | supplier fields | suppliers with reliability; `201` supplier |
+| PUT, DELETE | `/suppliers/:id` | supplier fields | updated supplier; `204` |
+| GET, POST | `/receipts` | header and `lines` | receipts; `201` draft receipt |
+| POST | `/receipts/parse` | `text` | parsed header and lines, each with ranked product matches |
+| GET, PUT, DELETE | `/receipts/:id` | header and `lines` | a receipt; drafts only for PUT and DELETE |
+| POST | `/receipts/:id/confirm` | | applies received − damaged to stock once; `409` if already confirmed |
+| POST | `/copilot` | `message`, `productId?` | an answer, candidates to choose from, or a proposal to confirm (rate-limited) |
+| POST | `/recognize` | `text` | products ranked against text read from a photo |
 
 Product fields: `name` (required), `sku` (required; letters, digits, `. _ - /`), `description`,
 `quantityOnHand` (required integer ≥ 0), `costPrice`, `sellingPrice` (non-negative, up to two
-decimals), `lowStockThreshold` (integer ≥ 0, or `null` for the organization default).
+decimals), `lowStockThreshold` (integer ≥ 0, or `null` for the organization default), and
+`brand`, `manufacturer`, `category`, `imageUrl` (catalogue image servers only), and on create only
+`barcodes` (up to 10 codes) and `catalogue` (`provider`, `sourceName`, `retrievedAt`).
+
+## 7a. Scanner
+
+`web/src/scanner/` and `web/src/pages/ScanPage.tsx`.
+
+- **Decoding** happens entirely in the browser, and camera frames are never uploaded.
+  `decoder.ts` uses the browser's `BarcodeDetector` where it exists and reads EAN-13 and Code 128
+  (Chrome and Edge on Android, macOS and ChromeOS); the operating system's engine handles small
+  and slightly blurred barcodes far better. Everywhere else it uses zxing-wasm, the WebAssembly
+  build of ZXing-C++. Format names from both are mapped to the same names. The `.wasm` file is
+  bundled and served from Storiva's own origin instead of the library's default CDN, so the
+  Content Security Policy only needs `'wasm-unsafe-eval'` in addition to `'self'`. It is fetched
+  the first time a frame is decoded, so other pages never load it.
+- **Camera loop** (`useCameraScanner`): one frame roughly every 100 ms, one at a time. With a
+  built-in detector, the video element is passed to it directly, and ZXing still runs every
+  fourth frame for formats the detector lacks. With ZXing, frames alternate between the centre
+  of the image (84% × 56%, at full resolution) and the whole image (at most 1280 px wide).
+  Shrinking the whole frame, as earlier versions did, left the bars of a small or distant
+  barcode too thin to read. The camera is asked for 1080p and continuous focus where supported.
+  It supports choosing among the device's cameras and the torch where the browser exposes it.
+  Permission and device failures produce specific messages, and the barcode field is always
+  available instead.
+- **Form scanning** (`ScanBarcodeButton`, `CameraScanDialog`): a camera button in a barcode
+  field opens the same scanner in a dialog. The dialog closes on the first read; its code is
+  loaded only when the button is used.
+- **Duplicate protection** (`ScanDeduplicator`): a code is reported once and then ignored while
+  it stays in view; it is reported again only after being absent for 1.2 s. In normal use a scan
+  also pauses the camera until the result is dealt with.
+- **Hardware scanners** (USB/Bluetooth) behave as keyboards: they type the code and press
+  Enter into the barcode field, which stays focused on devices with a mouse. Keystroke timing
+  (under 35 ms per key) labels the source as `scanner` rather than `manual`.
+- **Modes**: Find, Receive, Issue, Count, Add new. Continuous mode (receive/issue only) applies
+  one unit per scan without a form.
+- **Idempotency**: each action form generates one key when it opens and resends it on retry.
 
 ## 8. Web client
 
@@ -221,11 +436,17 @@ decimals), `lowStockThreshold` (integer ≥ 0, or `null` for the organization de
 | Folder | Contents |
 | --- | --- |
 | `api/` | `client.ts` (the only place that calls `fetch`; turns error bodies into `ApiError`), `types.ts` (response shapes) |
-| `hooks/` | `useAccount` (session, login, signup, logout), `useInventory` (products, dashboard, settings queries and mutations), `useForm` (form state and validation), small utilities |
+| `hooks/` | `useAccount` (session, login, signup, logout), `useInventory` (products, dashboard, settings queries and mutations), `useAdvanced` (advanced-tool queries and mutations), `useAdvancedMode` (the per-device switch), `useForm` (form state and validation), small utilities |
 | `lib/` | `validation.ts` (zod schemas mirroring the server rules), `format.ts` (number, price, time formatting) |
 | `components/` | Shared UI: layout, buttons, text fields, dialog, alert, stock status badge, toast |
 | `pages/` | One component per route |
-| `products/` | The adjust-stock and delete-confirmation dialogs; `stockAdjustment.ts` (the calculation behind the adjust dialog) and `productView.ts` (status filter and sort), both pure and unit-tested |
+| `products/` | The adjust-stock and delete-confirmation dialogs, barcode list, stock history, catalogue photo; `stockAdjustment.ts` (the calculation behind the adjust dialog) and `productView.ts` (status filter and sort), both pure and unit-tested |
+| `scanner/` | Camera loop, decoder, barcode field, scan actions, Quick Add, the camera button for form fields (§7a) |
+| `advanced/` | Trust and evidence panels, product picker |
+| `labels/` | Label stock layouts (unit-tested sheet geometry) and barcode images |
+| `bulk/` | CSV parsing and automatic column matching (unit-tested) |
+| `ocr/` | Tesseract.js wrapper; the engine and English model are copied into `web/public/ocr` by `web/scripts/copy-ocr-assets.mjs` |
+| `offline/` | IndexedDB store, the operation queue and sync result classification (unit-tested) |
 
 **Routing and auth state** (`App.tsx`). On load the app calls `GET /api/auth/me`. With no session
 only `/login` and `/signup` exist and any other address redirects to login, remembering where the
@@ -235,7 +456,11 @@ the person is sent back to login.
 
 **Server state** uses TanStack Query. After any product change the product list and dashboard
 queries are invalidated, so totals and low-stock status update immediately. Logging in or out
-clears the whole cache so nothing from one organization is shown to the next person.
+clears the whole cache, and logging out also clears the offline snapshot and queue, so nothing
+from one organization is shown to the next person.
+
+**Code splitting.** The Scan page, the advanced pages and the form camera dialog are loaded on
+first use, which keeps the main bundle at about 460 kB (142 kB gzipped).
 
 **Forms** validate on blur and on submit with the same rules as the server, and show the
 server's field errors (for example a duplicate SKU) next to the right field. The server always
@@ -269,11 +494,19 @@ collapse to one column.
 
 ## 9. Testing
 
+Current totals (4 November 2026): 296 server tests in 17 files and 69 web tests in 9 files, all
+passing; type check, lint and production build pass.
+
 - `server/test/*.test.ts`: integration tests that run the real Express app against a real
   PostgreSQL database (`storiva_test`). Every test starts from empty tables. The suite refuses
   to run unless the database name ends in `_test`, so it cannot wipe a database with real data.
-- `web/src/**/*.test.ts`: unit tests for client-side validation, payload conversion and the
-  stock status rule.
+- `server/test/*.test.ts` also includes unit tests for the pure rules: matching, trust,
+  simulation, invoice parsing and Copilot intents.
+- `web/src/**/*.test.ts`: unit tests for client-side validation, payload conversion, the stock
+  status rule, CSV parsing and column matching, label geometry and offline sync classification.
+- The production build is also exercised in a real browser with Playwright and axe-core, on a
+  local copy and on the deployed site (see the README). These scripts are kept outside the
+  repository.
 
 ## 10. Deployment
 
@@ -288,8 +521,13 @@ collapse to one column.
 - **Database**: a managed PostgreSQL instance (Neon). Its connection string is the only secret
   and is set as `DATABASE_URL` in Render, never committed.
 
-With `NODE_ENV=production` the server sets the `Secure` cookie flag, trusts the hosting proxy, keys the rate limiter on `CLIENT_IP_HEADER`, and
-serves `web/dist` with long-lived caching for hashed assets and `no-cache` for `index.html`.
+With `NODE_ENV=production` the server sets the `Secure` cookie flag, trusts the hosting proxy,
+keys the rate limiter on `CLIENT_IP_HEADER`, and serves `web/dist` with long-lived caching for
+hashed assets and `no-cache` for `index.html`, the service worker and the web manifest.
+
+**Migration practice.** Every migration is additive. Before each one reached production it was
+applied to a copy of the production data, and the existing rows were checksummed before and
+after to confirm they were unchanged.
 
 ## 11. Decisions and trade-offs
 
@@ -302,3 +540,7 @@ serves `web/dist` with long-lived caching for hashed assets and `no-cache` for `
 | Prices as `DECIMAL` and strings | Exact cents end to end | The client formats strings for display |
 | Server-side search | Scales past what a client-side filter can hold | A request per (debounced) keystroke |
 | Hard delete | Allowed by the PRD; keeps the model simple | Deleted products cannot be restored |
+| Rule-based Copilot, no language model | Answers are reproducible, explainable and never leave the server; nothing can write without confirmation | Understands a fixed set of phrasings |
+| OCR in the browser | Invoice photos stay on the device; no paid OCR service | Slower on old phones; accuracy depends on the photo |
+| Trust computed from the ledger | Always current; no stored score to drift | Computed on each request |
+| Labels encode the SKU | No fabricated GTINs; works for products without a retail barcode | Only Storiva (or a scanner that types the SKU) maps the label to a product |

@@ -54,6 +54,7 @@ const price = (label: string) =>
     );
 
 export const productFormSchema = z.object({
+  barcode: z.string().trim().max(200, "Barcodes are limited to 200 characters."),
   name: z.string().trim().min(1, "Name is required.").max(200, "Use at most 200 characters."),
   sku: z
     .string()
@@ -62,6 +63,9 @@ export const productFormSchema = z.object({
     .max(64, "Use at most 64 characters.")
     .regex(/^[A-Za-z0-9._\-/]+$/, "Use letters, numbers, dots, dashes, slashes or underscores."),
   description: z.string().max(2000, "Use at most 2000 characters."),
+  brand: z.string().trim().max(120, "Use at most 120 characters."),
+  manufacturer: z.string().trim().max(200, "Use at most 200 characters."),
+  category: z.string().trim().max(200, "Use at most 200 characters."),
   quantityOnHand: wholeNumber("Quantity", { optional: false }),
   lowStockThreshold: wholeNumber("Threshold", { optional: true }),
   costPrice: price("Cost price"),
@@ -78,6 +82,10 @@ export const toProductPayload = (values: ProductFormValues): ProductPayload => (
   lowStockThreshold: values.lowStockThreshold.trim() === "" ? null : Number(values.lowStockThreshold),
   costPrice: values.costPrice.trim() || null,
   sellingPrice: values.sellingPrice.trim() || null,
+  brand: values.brand.trim() || null,
+  manufacturer: values.manufacturer.trim() || null,
+  category: values.category.trim() || null,
+  ...(values.barcode.trim() ? { barcodes: [values.barcode.trim()] } : {}),
 });
 
 export const thresholdSchema = z.object({ defaultLowStockThreshold: wholeNumber("Threshold", { optional: false }) });

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
+import { clearOfflineData } from "../offline/store";
 import type { Account } from "../api/types";
 
 export const accountKey = ["account"] as const;
@@ -49,6 +50,7 @@ export function useLogout() {
     mutationFn: () => api.post<undefined>("/auth/logout"),
     // Clear cached inventory so nothing from this organization lingers for the next person.
     onSettled: () => {
+      void clearOfflineData();
       queryClient.clear();
       queryClient.setQueryData(accountKey, null);
     },

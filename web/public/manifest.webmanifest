@@ -1,0 +1,10 @@
+{
+  "name": "Storiva",
+  "short_name": "Storiva",
+  "description": "Inventory for small businesses: scan, receive, issue and count stock.",
+  "start_url": "/scan",
+  "display": "standalone",
+  "background_color": "#f6f2ec",
+  "theme_color": "#f6f2ec",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

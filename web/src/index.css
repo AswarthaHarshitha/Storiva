@@ -46,3 +46,26 @@
     background: rgb(38 34 30 / 0.35);
   }
 }
+
+/* Label printing: only the label pages are printed, at their true size. */
+@media print {
+  html,
+  body {
+    background: white;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    inset: 0 auto auto 0;
+  }
+  .print-page {
+    break-after: page;
+    overflow: hidden;
+  }
+}
