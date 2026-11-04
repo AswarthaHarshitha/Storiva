@@ -9,11 +9,14 @@ manual control.**
 
 ## 0. Branching and the assessment
 
-`main` is the assessment submission and is auto-deployed to
-https://storiva-wovt.onrender.com. Several Storiva Advanced Inventory capabilities (CSV import, stock movement history,
-audit records) are listed as **out of scope** in the assessment PRD. To keep the submission
-compliant, all Storiva Advanced Inventory work happens on the `storiva-2` branch. Nothing from this branch reaches `main`
-or production until the owner decides to merge it, and production data is never used for testing.
+`main` is the assessment submission and stays exactly as submitted (commit `ec8291a`). Several
+Storiva Advanced Inventory capabilities (CSV import, stock movement history, audit records) are
+listed as **out of scope** in the assessment PRD. To keep the submission compliant, all Storiva
+Advanced Inventory work happens on the `storiva-2` branch, which is never merged into `main`.
+
+With the owner's approval, the Render service https://storiva-wovt.onrender.com was switched to
+deploy `storiva-2` (Phase 2 onwards). Every release's migrations were first rehearsed on a copy of
+the production data. Live testing uses separate QA organizations, which are deleted afterwards.
 
 ## 1. Existing capabilities (audit, November 2026)
 
@@ -65,8 +68,8 @@ analytics.
 - Internal labels: Code 128 and QR generated from an internal identifier (`STV-…`), printable
   sheets, bulk printing. No invented GTINs.
 
-**Phase 2 status (4 November 2026):** product identification and Quick Add are complete; labels
-are not started.
+**Phase 2 status (4 November 2026):** product identification and Quick Add are complete. Labels
+were completed in the release described in section 9.
 
 | Provider | Cost | Account | Limits | Commercial use | Decision |
 | --- | --- | --- | --- | --- | --- |
@@ -232,3 +235,39 @@ axe-core WCAG 2.1 A/AA violations.
   transmit UPC-E unexpanded would not match its UPC-A form. Most scanners expand UPC-E by
   default; this is noted for Phase 2.
 - The browser walkthroughs are development scripts, not part of the repository's suite.
+
+## 9. Complete release (4 November 2026)
+
+Phases 2 to 5 were finished in one release on `storiva-2` and deployed to the existing service.
+The README describes each tool and its limits; `docs/architecture.md` §6c describes how they work.
+
+| Planned | Delivered | Notes |
+| --- | --- | --- |
+| Labels | Code 128 and QR; four thermal roll sizes and three A4 sheets; preview, copies, print to PDF | Labels encode the SKU, not an invented GTIN |
+| CSV import and export | Automatic column matching, preview, duplicate detection, one-transaction commit, error report, export | Bulk edit and bulk delete screens beyond CSV were not built |
+| History | Per-product stock history (from Phase 1) and the Copilot's "history of …" | No organization-wide history page with filters yet |
+| Evidence Graph | Origin, author, time and "checked" status for seven product fields, plus quantity verification from the ledger | Values set before tracking began are shown as unknown |
+| Trust Radar | Rule-based levels, reasons, count-next queue | Not a probability |
+| Exception Manager | Eight causes, evidence, resolution with a required note, automatic closing | |
+| Supplier reliability | Suppliers, receipts with expected, received and damaged quantities, on-time and complete rates | Shown only after confirmed receipts exist |
+| Invoice extraction | Tesseract.js in the browser, parser, confidence-rated matching, human confirmation | Images only; no paid OCR provider |
+| Image matching | Barcode or SKU in a photo (certain), or OCR text matched to names (with confidence) | No visual machine learning; no paid vision provider |
+| Decision Simulator | Purchase, price, cost and delayed-delivery scenarios, valuation, slow-moving | Demand figures only with at least 14 days and 3 issues in 90 days |
+| Copilot | Rule-based intents, proposals, confirm-before-apply, read-back | No language model, so no provider cost and no data leaves the server |
+| Offline | Service worker, device snapshot, queued receive, issue and count, conflict review | Other screens need a connection |
+| Voice commands | Not built | Web Speech API support varies by browser |
+| Competitive matrix | Not compiled | No uniqueness claims are made |
+
+Integrations that need the owner's credentials or agreement before they can be switched on:
+UPCitemdb (adapter built, off until its commercial terms are confirmed), Verified by GS1
+(membership), and any paid OCR, vision or language-model provider. None is required for the
+features above.
+
+Verification:
+
+- 296 server tests and 69 web unit tests.
+- Four browser suites (68 steps, axe accessibility checks, no console errors), run on a local
+  production build and on the deployed site.
+- The migration rehearsed on a copy of production: the product rows were checksummed before and
+  after and matched. The same checksum was confirmed on production after deployment.
+

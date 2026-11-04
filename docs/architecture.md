@@ -252,6 +252,60 @@ low-stock list) uses Prisma's `$queryRaw` tagged template, which sends values as
 - **Images** are shown from the catalogue's image server (CSP `img-src` lists exactly those
   hosts), with `referrerpolicy="no-referrer"`, and stay hidden until they have loaded.
 
+## 6c. Advanced inventory
+
+Migration `20261105090000_evidence_suppliers_receiving_imports_exceptions` adds six tables:
+`product_evidence`, `suppliers`, `receipts`, `receipt_lines`, `import_batches` and
+`inventory_exceptions`. It also adds three stock-movement sources: `import`, `receiving` and
+`copilot`. The migration only adds; it changes no existing column or row. It was rehearsed on a
+copy of the production data before deployment: the product rows were checksummed before and
+after and matched.
+
+- **Every quantity change uses the ledger.** Imports, confirmed receipts and Copilot changes
+  call the same `applyWithin(tx, …)` as the scanner and product page. It locks the product row,
+  writes a `stock_movements` row with the quantity before and after, and honours the idempotency
+  key. The `adjust` operation carries the quantity the user saw (`expectedQuantity`) and fails
+  with `409 QUANTITY_CHANGED` if it no longer matches.
+- **Evidence** is written whenever a tracked field (name, brand, manufacturer, category,
+  description, cost price, selling price) changes. It records the source (manual, import, catalogue
+  or receipt), a reference, and who made the change. A field changed before tracking began has no
+  row and is shown as unknown.
+- **Trust** is computed when requested from the ledger (`server/src/lib/trust.ts`), and nothing
+  is stored. A product is *unverified* if it has never been counted. It is *low* if any of these
+  hold: it was last counted more than 90 days ago; its last count differed from the system and
+  has not been re-checked; it has had 3 or more manual corrections since that count; or most of
+  its recent counts found a difference. It is *medium* if it was counted more than 30 days ago, has
+  had 1 or 2 corrections since, or a minority of recent counts differed. Otherwise it is *high*.
+  Every rule that applies is listed as a reason.
+- **Exceptions** are detected when the list is opened (`exceptionService.detectExceptions`) and
+  stored with a unique key per cause, so the same problem is never listed twice. Causes that
+  disappear, such as a recount that agrees or a price that has been filled in, close themselves
+  with a note saying why.
+- **Receiving.** A receipt stays a draft until it is confirmed. Confirmation locks the receipt row,
+  refuses a second confirmation, and receives `received − damaged` units for each line linked to
+  a product. If the user ticked "update cost price", it also updates the cost, with the receipt
+  as the evidence. CHECK constraints keep `damaged ≤ received` and all quantities non-negative.
+- **Copilot** (`server/src/lib/copilotIntent.ts`, `copilotService.ts`) maps a message to one of
+  a fixed set of intents with regular expressions. Questions are answered from queries. A stock
+  command resolves the product by exact SKU or barcode, or by word similarity with a stated
+  confidence, and returns a proposal. The service never writes; the browser applies a confirmed
+  proposal through `POST /stock/operations` and then reads the product back.
+- **Matching** (`server/src/lib/textMatch.ts`) ranks products against text: an exact SKU or
+  barcode first, then word similarity. As a last resort it compares names with spacing and
+  OCR look-alike characters ignored; such matches are rated *medium* at most, so they are
+  offered, never chosen automatically.
+- **Tenant integrity.** Evidence, exceptions and receipt lines reference products and receipts
+  through composite foreign keys `(id, organization_id)`. These keys and their unique indexes
+  are written by hand in the migration, because Prisma cannot express them. For the same reason
+  `prisma migrate diff` lists them as differences; they are intended.
+
+In the browser, the advanced pages are loaded only when opened, which keeps the main bundle at
+about 460 kB. Labels are SVG images encoded by zxing-wasm. OCR uses Tesseract.js, with its worker,
+cores and English model copied into `web/public/ocr` at build time and served by Storiva itself.
+The offline queue lives in IndexedDB (`web/src/offline/`). On reconnect each operation is sent
+with its original idempotency key. The response is classified as applied, already applied,
+conflict (needs review, reported to `/exceptions/sync-failures`) or retry later.
+
 ## 7. API reference
 
 All endpoints are under `/api`. Everything except health, signup, login and logout requires a
@@ -279,6 +333,26 @@ session.
 | GET | `/catalogue/lookup?code=&format=` | | `existing` product, or catalogue `matches` (with source, licence and retrieval time) and `unavailable` providers |
 | GET | `/settings` | | organization name and default threshold |
 | PUT | `/settings` | `defaultLowStockThreshold` | updated settings |
+| GET | `/products/export.csv` | | every product with its barcodes, as CSV (formula cells neutralised) |
+| GET | `/products/:id/evidence` | | origin of each tracked field, and how the quantity was last verified |
+| POST | `/products/:id/evidence/verify` | `field` | records that a person checked the field's current value |
+| GET | `/products/:id/trust` | | the product's trust level, reasons and recommendation |
+| GET | `/trust` | | trust level for every product, a summary and the count-next queue |
+| POST | `/imports/preview` | `fileName`, `rows` (up to 5,000 mapped rows) | the plan for each row (create, update, unchanged, error); writes nothing |
+| POST | `/imports` | same as preview | `201` result; one transaction, errors recorded in an import batch |
+| GET | `/exceptions?status=` | | open or closed exceptions with their evidence, and open counts by type |
+| POST | `/exceptions/:id/resolve` | `status` (`resolved` / `dismissed`), `note` | the closed exception |
+| POST | `/exceptions/sync-failures` | the rejected offline operation | records it as an exception |
+| GET | `/reports` | | valuation, slow-moving products and correction summary |
+| POST | `/simulate` | `productId` and a scenario | actual and hypothetical figures; never changes stock |
+| GET, POST | `/suppliers` | supplier fields | suppliers with reliability; `201` supplier |
+| PUT, DELETE | `/suppliers/:id` | supplier fields | updated supplier; `204` |
+| GET, POST | `/receipts` | header and `lines` | receipts; `201` draft receipt |
+| POST | `/receipts/parse` | `text` | parsed header and lines, each with ranked product matches |
+| GET, PUT, DELETE | `/receipts/:id` | header and `lines` | a receipt; drafts only for PUT and DELETE |
+| POST | `/receipts/:id/confirm` | | applies received − damaged to stock once; `409` if already confirmed |
+| POST | `/copilot` | `message`, `productId?` | an answer, candidates to choose from, or a proposal to confirm (rate-limited) |
+| POST | `/recognize` | `text` | products ranked against text read from a photo |
 
 Product fields: `name` (required), `sku` (required; letters, digits, `. _ - /`), `description`,
 `quantityOnHand` (required integer ≥ 0), `costPrice`, `sellingPrice` (non-negative, up to two
@@ -367,8 +441,13 @@ collapse to one column.
 - `server/test/*.test.ts`: integration tests that run the real Express app against a real
   PostgreSQL database (`storiva_test`). Every test starts from empty tables. The suite refuses
   to run unless the database name ends in `_test`, so it cannot wipe a database with real data.
-- `web/src/**/*.test.ts`: unit tests for client-side validation, payload conversion and the
-  stock status rule.
+- `server/test/*.test.ts` also includes unit tests for the pure rules: matching, trust,
+  simulation, invoice parsing and Copilot intents.
+- `web/src/**/*.test.ts`: unit tests for client-side validation, payload conversion, the stock
+  status rule, CSV parsing and column matching, label geometry and offline sync classification.
+- The production build is also exercised in a real browser with Playwright and axe-core, on a
+  local copy and on the deployed site (see the README). These scripts are kept outside the
+  repository.
 
 ## 10. Deployment
 
@@ -397,3 +476,7 @@ serves `web/dist` with long-lived caching for hashed assets and `no-cache` for `
 | Prices as `DECIMAL` and strings | Exact cents end to end | The client formats strings for display |
 | Server-side search | Scales past what a client-side filter can hold | A request per (debounced) keystroke |
 | Hard delete | Allowed by the PRD; keeps the model simple | Deleted products cannot be restored |
+| Rule-based Copilot, no language model | Answers are reproducible, explainable and never leave the server; nothing can write without confirmation | Understands a fixed set of phrasings |
+| OCR in the browser | Invoice photos stay on the device; no paid OCR service | Slower on old phones; accuracy depends on the photo |
+| Trust computed from the ledger | Always current; no stored score to drift | Computed on each request |
+| Labels encode the SKU | No fabricated GTINs; works for products without a retail barcode | Only Storiva (or a scanner that types the SKU) maps the label to a product |
