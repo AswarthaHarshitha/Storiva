@@ -10,18 +10,39 @@ glance and knows which products need reordering.
 new organization starts empty. The service runs on Render's free plan, so the first request after
 a period of inactivity can take up to a minute.
 
+### Everyday use
+
+| Dashboard | Products |
+| --- | --- |
+| ![Dashboard with product and unit totals and a table of low-stock items](docs/screenshots/dashboard.png) | ![Product list with search, filter, sort and stock status for each product](docs/screenshots/products.png) |
+
+| Scanning with the camera | Quick Add from the product catalogue |
+| --- | --- |
+| ![Scan page: the camera has read a barcode and shows the matching product](docs/screenshots/scan-camera.png) | ![An unknown barcode opens Quick Add with the name and brand filled from Open Food Facts](docs/screenshots/quick-add.png) |
+
+| Barcode filled by the camera on Add product | Barcodes and stock history |
+| --- | --- |
+| ![Add product with the scanned barcode filled in and a warning that another product already uses it](docs/screenshots/product-form-scan.png) | ![Product page listing its barcode, an Add a barcode field with a camera button, and stock history](docs/screenshots/product-barcodes-history.png) |
+
+### First run and settings
+
 | First run | Phone |
 | --- | --- |
 | ![Dashboard of a new organization, prompting for the first product](docs/screenshots/dashboard-first-run.png) | ![Dashboard on a phone, with bottom navigation](docs/screenshots/mobile-dashboard.png) |
 
 | Product form with validation | Settings |
 | --- | --- |
-| ![Add product form showing required-field errors](docs/screenshots/product-form-validation.png) | ![Settings page with the default low-stock threshold](docs/screenshots/settings.png) |
+| ![Add product form showing required-field errors](docs/screenshots/product-form-validation.png) | ![Settings page with the default low-stock threshold and the advanced tools switch](docs/screenshots/settings.png) |
 
-Screenshots are taken from the deployed application with an empty QA organization; no sample
-inventory was created for them.
+All screenshots are taken from the deployed application with temporary QA organizations, which
+were deleted afterwards. In the everyday-use screenshots:
 
-### Advanced tools
+- The products are 24 rows from a generated sample CSV, plus one product created for the
+  screenshots.
+- The camera was fed recorded test videos of printed barcodes.
+- The Quick Add details are Open Food Facts' real entry for that barcode.
+
+### Advanced tools at a glance
 
 | Trust Radar | Exception Manager |
 | --- | --- |
@@ -177,6 +198,8 @@ advanced tools** turns them on for that device. On a phone they appear under the
 - Identify by photo relies on a barcode, a SKU or legible text. It cannot recognise an unlabelled
   object by its appearance.
 - Offline mode covers scanning and receive, issue and count. Other screens need a connection.
+- The product list loads every product at once. With a few thousand products it takes several
+  seconds to open; paging is not implemented yet.
 
 ## Technology stack
 
