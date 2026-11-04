@@ -27,6 +27,15 @@ const queryClient = new QueryClient({
   },
 });
 
+// The service worker keeps the app shell available offline (see public/sw.js).
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // Offline support is optional; the app works without it.
+    });
+  });
+}
+
 const root = document.getElementById("root");
 if (!root) throw new Error("Root element #root is missing from index.html");
 

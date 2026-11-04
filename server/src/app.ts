@@ -48,7 +48,17 @@ export function createApp({ catalogue = createConfiguredCatalogue() }: { catalog
   app.use("/api", apiNotFound);
 
   if (isProduction && existsSync(webDist)) {
-    app.use(express.static(webDist, { index: false, maxAge: "1y", immutable: true }));
+    app.use(
+      express.static(webDist, {
+        index: false,
+        maxAge: "1y",
+        immutable: true,
+        // The service worker and manifest keep fixed names, so they must be revalidated.
+        setHeaders: (res, path) => {
+          if (/[\\/](sw\.js|manifest\.webmanifest)$/.test(path)) res.setHeader("Cache-Control", "no-cache");
+        },
+      }),
+    );
     app.get(/^(?!\/api\/).*/, (_req, res) => {
       res.set("Cache-Control", "no-cache");
       res.sendFile("index.html", { root: webDist });

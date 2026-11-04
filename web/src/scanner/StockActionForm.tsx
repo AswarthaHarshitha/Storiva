@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { ApiError, errorMessage } from "../api/client";
-import type { Product, StockMovementSource, StockOperationResult } from "../api/types";
+import type { Product, StockMovementSource, StockOperationRequest, StockOperationResult } from "../api/types";
 import { Alert } from "../components/Alert";
 import { Button } from "../components/Button";
 import { TextField } from "../components/TextField";
@@ -14,11 +14,13 @@ interface StockActionFormProps {
   onDone: (result: StockOperationResult) => void;
   /** Called when the server reports a newer quantity, so the caller can refresh the product. */
   onStale: () => void;
+  /** When offline: the operation is handed to the queue instead of being sent. */
+  onQueue?: (request: StockOperationRequest) => void;
 }
 
 const WHOLE = /^\d+$/;
 
-export function StockActionForm({ type, product, source, onDone, onStale }: StockActionFormProps) {
+export function StockActionForm({ type, product, source, onDone, onStale, onQueue }: StockActionFormProps) {
   const [value, setValue] = useState(type === "count" ? "" : "1");
   const [note, setNote] = useState("");
   const [showErrors, setShowErrors] = useState(false);
@@ -54,10 +56,14 @@ export function StockActionForm({ type, product, source, onDone, onStale }: Stoc
       return;
     }
     const base = { productId: product.id, source, note: note.trim() || null, idempotencyKey };
+    const request: StockOperationRequest =
+      type === "count" ? { ...base, type, countedQuantity: amount, expectedQuantity: onHand } : { ...base, type, quantity: amount };
+    if (onQueue) {
+      onQueue(request);
+      return;
+    }
     operation.mutate(
-      type === "count"
-        ? { ...base, type, countedQuantity: amount, expectedQuantity: onHand }
-        : { ...base, type, quantity: amount },
+      request,
       {
         onSuccess: onDone,
         onError: (error) => {

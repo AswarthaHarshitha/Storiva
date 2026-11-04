@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { CircleCheck, PackageSearch, Plus, Repeat } from "lucide-react";
-import { errorMessage } from "../api/client";
+import { ApiError, errorMessage } from "../api/client";
 import type { BarcodeLookup, Product, StockMovementSource, StockOperationRequest, StockOperationResult } from "../api/types";
 import { Alert } from "../components/Alert";
 import { Button } from "../components/Button";
@@ -16,6 +16,8 @@ import { CameraPanel } from "../scanner/CameraPanel";
 import { scanFeedback } from "../scanner/feedback";
 import { LinkBarcode } from "../scanner/LinkBarcode";
 import { isScanMode, scanModes, type ScanMode } from "../scanner/modes";
+import { OfflineQueuePanel } from "../offline/OfflineQueuePanel";
+import { lookupOffline, refreshSnapshot, useOfflineQueue } from "../offline/useOfflineQueue";
 import { QuickAdd } from "../scanner/QuickAdd";
 import { StockActionForm } from "../scanner/StockActionForm";
 import { useCameraScanner } from "../scanner/useCameraScanner";
@@ -25,7 +27,10 @@ interface CurrentScan {
   code: string;
   format?: string;
   source: StockMovementSource;
-  state: "loading" | "ready" | "error" | "done" | "added";
+  state: "loading" | "ready" | "error" | "done" | "added" | "queued";
+  /** Set when identified from the products saved on this device, without a connection. */
+  offline?: { savedAt: string | null };
+  queued?: string;
   lookup?: BarcodeLookup;
   error?: string;
   result?: StockOperationResult;
@@ -57,6 +62,23 @@ export function ScanPage() {
   const [focusSignal, setFocusSignal] = useState(0);
   const nextId = useRef(1);
   const quickOperation = useStockOperation();
+  const queue = useOfflineQueue();
+
+  // Keep a copy of the products on this device, so scans can be identified offline.
+  useEffect(() => {
+    if (navigator.onLine) void refreshSnapshot().catch(() => undefined);
+  }, []);
+
+  const queueOperation = async (scanId: number, request: StockOperationRequest, product: Product) => {
+    await queue.enqueue(request, product);
+    const text =
+      request.type === "count"
+        ? `Count of ${request.countedQuantity}`
+        : `${request.type === "receive" ? "Receive" : "Issue"} ${pluralize(request.quantity, "unit")}`;
+    scanFeedback("success");
+    setCurrent((c) => (c && c.id === scanId ? { ...c, state: "queued", queued: `${text} of ${product.name} saved on this device.` } : c));
+    setHistory((list) => list.map((entry) => (entry.id === scanId ? { ...entry, outcome: `${text} · waiting to sync` } : entry)));
+  };
   const resultRef = useRef<HTMLElement>(null);
 
   // On a phone the result sits below the camera; bring it into view once a scan has resolved.
@@ -84,12 +106,27 @@ export function ScanPage() {
     setCurrent({ id, code, format, source, state: "loading" });
 
     let lookup: BarcodeLookup;
+    let offline: CurrentScan["offline"];
     try {
+      if (!navigator.onLine) throw new ApiError(0, "NETWORK", "Offline");
       lookup = await lookupBarcode(code, format);
     } catch (error) {
-      scanFeedback("error");
-      setCurrent({ id, code, format, source, state: "error", error: errorMessage(error) });
-      remember({ id, code, product: null, outcome: "Not a valid barcode" });
+      if (!(error instanceof ApiError && error.status === 0)) {
+        scanFeedback("error");
+        setCurrent({ id, code, format, source, state: "error", error: errorMessage(error) });
+        remember({ id, code, product: null, outcome: "Not a valid barcode" });
+        return;
+      }
+      // No connection: identify from the products saved on this device.
+      const saved = await lookupOffline(code);
+      lookup = { code, kind: "other", matchedBy: saved.product ? "barcode" : null, product: saved.product };
+      offline = { savedAt: saved.savedAt };
+    }
+
+    if (offline && runContinuously && lookup.product) {
+      setCurrent({ id, code, format, source, state: "ready", lookup, offline });
+      remember({ id, code, product: lookup.product.name, outcome: "Identified offline" });
+      void queueOperation(id, { type: mode as "receive" | "issue", quantity: 1, productId: lookup.product.id, source, note: null, idempotencyKey: crypto.randomUUID() }, lookup.product);
       return;
     }
 
@@ -118,7 +155,7 @@ export function ScanPage() {
     }
 
     scanFeedback(lookup.product ? "success" : "error");
-    setCurrent({ id, code, format, source, state: "ready", lookup });
+    setCurrent({ id, code, format, source, state: "ready", lookup, offline });
     remember({
       id,
       code,
@@ -219,6 +256,11 @@ export function ScanPage() {
                   );
                 }}
                 onStale={() => void refreshCurrent()}
+                onQueue={
+                  current.offline && current.lookup?.product
+                    ? (request) => void queueOperation(current.id, request, current.lookup?.product as Product)
+                    : undefined
+                }
                 onLinked={() => void refreshCurrent()}
                 onAdded={(product) => {
                   setCurrent({ ...current, state: "added", added: product });
@@ -235,6 +277,8 @@ export function ScanPage() {
               />
             )}
           </section>
+
+          <OfflineQueuePanel queue={queue} />
 
           <section aria-labelledby="scan-history-heading">
             <h2 id="scan-history-heading" className="mb-2 text-sm font-semibold">
@@ -271,12 +315,13 @@ interface ScanResultViewProps {
   continuous: boolean;
   onDone: (result: StockOperationResult) => void;
   onStale: () => void;
+  onQueue?: (request: StockOperationRequest) => void;
   onLinked: () => void;
   onAdded: (product: Product) => void;
   onNext: () => void;
 }
 
-function ScanResultView({ scan, mode, continuous, onDone, onStale, onLinked, onAdded, onNext }: ScanResultViewProps) {
+function ScanResultView({ scan, mode, continuous, onDone, onStale, onQueue, onLinked, onAdded, onNext }: ScanResultViewProps) {
   const [linking, setLinking] = useState(false);
   // In "Add new" the registration form opens straight away; in other modes the user chooses.
   const [adding, setAdding] = useState(mode === "add");
@@ -299,6 +344,24 @@ function ScanResultView({ scan, mode, continuous, onDone, onStale, onLinked, onA
     );
   }
 
+  if (scan.state === "queued") {
+    return (
+      <div className="space-y-4">
+        <p role="status" className="rounded-md bg-sunken px-3 py-2 text-sm">
+          {scan.queued} It will be sent when you are back online.
+        </p>
+        {continuous ? <p className="text-sm text-ink-muted">Scanning continues. Scan the next item.</p> : next}
+      </div>
+    );
+  }
+
+  const offlineNote = scan.offline ? (
+    <p className="rounded-md bg-warn-soft px-3 py-2 text-sm text-warn">
+      You are offline. Identified from the products saved on this device
+      {scan.offline.savedAt ? ` at ${new Date(scan.offline.savedAt).toLocaleString()}` : ""}; quantities may have changed since.
+    </p>
+  ) : null;
+
   if (scan.state === "added" && scan.added) {
     return (
       <div className="space-y-4">
@@ -315,6 +378,18 @@ function ScanResultView({ scan, mode, continuous, onDone, onStale, onLinked, onA
         <Button onClick={onNext} className="w-full" autoFocus>
           Scan next
         </Button>
+      </div>
+    );
+  }
+
+  if (!product && scan.offline) {
+    return (
+      <div className="space-y-4">
+        {offlineNote}
+        <p className="text-sm">
+          {scan.offline.savedAt ? `No saved product uses ${scan.code}.` : "No products are saved on this device yet. Open the Scan page once while online."} New products can be added when you are back online.
+        </p>
+        {next}
       </div>
     );
   }
@@ -410,8 +485,9 @@ function ScanResultView({ scan, mode, continuous, onDone, onStale, onLinked, onA
 
   return (
     <div className="space-y-4">
+      {offlineNote}
       {summary}
-      <StockActionForm type={mode} product={product} source={scan.source} onDone={onDone} onStale={onStale} />
+      <StockActionForm type={mode} product={product} source={scan.source} onDone={onDone} onStale={onStale} onQueue={onQueue} />
       <Button variant="ghost" onClick={onNext} className="w-full">
         Cancel
       </Button>
