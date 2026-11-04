@@ -25,8 +25,9 @@ same-origin behaviour.
 
 `server/src/routes/index.ts` maps each URL to a controller. A request passes through:
 
-1. **Global middleware** (`app.ts`): `helmet` security headers, `express.json` with a 20 kB
-   limit, `cookie-parser`, and `Cache-Control: no-store` on all API responses.
+1. **Global middleware** (`app.ts`): `helmet` security headers, `express.json` (5 MB for
+   `/api/imports`, 256 kB for `/api/receipts`, 20 kB everywhere else), `cookie-parser`, and
+   `Cache-Control: no-store` on all API responses.
 2. **`requireAuth`** (`middleware/requireAuth.ts`) on every route except health, signup, login
    and logout. It reads the `storiva_session` cookie, looks the session up, and sets
    `req.auth = { sessionId, userId, organizationId }`. No valid session means `401`.
@@ -54,39 +55,65 @@ no try/catch boilerplate.
 | 400 | Body is not valid JSON |
 | 401 | No valid session, or wrong email/password |
 | 404 | Resource does not exist **or belongs to another organization** |
-| 409 | Duplicate email or duplicate SKU |
+| 409 | Duplicate email, SKU or barcode; `QUANTITY_CHANGED` when stock changed since it was shown; a receipt already confirmed |
 | 422 | Validation failed; `fields` maps each field to a message |
-| 429 | Too many login/signup attempts from one address |
+| 429 | Rate limit reached (login and signup, Copilot, catalogue lookups) |
 
 ## 3. Data model
 
-Defined in `server/prisma/schema.prisma`; the SQL is in
-`server/prisma/migrations/20261103061908_init/migration.sql`.
+Defined in `server/prisma/schema.prisma`. Four migrations in `server/prisma/migrations` build it,
+each additive:
+
+| Migration | Adds |
+| --- | --- |
+| `20261103061908_init` | `organizations`, `users`, `sessions`, `products` |
+| `20261103131351_barcodes_and_stock_movements` | `product_barcodes`, `stock_movements` |
+| `20261104090000_product_catalogue_details` | `catalogue_entries`; brand, manufacturer, category, image and catalogue source columns on `products` |
+| `20261105090000_evidence_suppliers_receiving_imports_exceptions` | `product_evidence`, `suppliers`, `receipts`, `receipt_lines`, `import_batches`, `inventory_exceptions` |
 
 ```
 organizations 1 ──< users 1 ──< sessions
       1
-      └──< products >── 0..1 users (last_updated_by)
+      ├──< products 1 ──< product_barcodes
+      │        1 ──< stock_movements          (product set to NULL on delete; snapshot kept)
+      │        1 ──< product_evidence
+      ├──< suppliers 1 ──< receipts 1 ──< receipt_lines >── 0..1 products
+      ├──< import_batches
+      └──< inventory_exceptions >── 0..1 products
+
+catalogue_entries   (public catalogue answers; not tied to an organization)
 ```
 
 | Table | Key columns | Notes |
 | --- | --- | --- |
 | `organizations` | `id`, `name`, `default_low_stock_threshold` (default 5) | One per signup; holds the org-wide setting |
-| `users` | `id`, `email` (unique, lower-case), `password_hash`, `organization_id` | One owner per organization in this version |
+| `users` | `id`, `email` (unique, lower-case), `password_hash`, `organization_id` | One owner per organization |
 | `sessions` | `token_hash` (unique), `user_id`, `expires_at` | SHA-256 of the cookie token, never the token itself |
-| `products` | `organization_id`, `name`, `sku`, `description`, `quantity_on_hand`, `cost_price`, `selling_price`, `low_stock_threshold`, `last_updated_by_id`, `last_adjustment_note`, timestamps | |
+| `products` | `organization_id`, `name`, `sku`, `description`, `brand`, `manufacturer`, `category`, `quantity_on_hand`, `cost_price`, `selling_price`, `low_stock_threshold`, `image_url`, catalogue source, `last_updated_by_id`, `last_adjustment_note`, timestamps | |
+| `product_barcodes` | `product_id`, `code` (normalized), `raw_code`, `kind` | Unique per organization |
+| `stock_movements` | `product_id`, `type`, `source`, quantity before/change/after, `user_id`, `note`, `idempotency_key`, reference | Append-only ledger; see §6 |
+| `catalogue_entries` | `provider`, `code` (GTIN), `found`, `data`, source name and URL, `fetched_at` | Cache; see §6b |
+| `product_evidence` | `product_id`, `field`, `value`, `source`, `status`, reference, `user_id` | Append-only; see §6c |
+| `suppliers`, `receipts`, `receipt_lines` | supplier, status (`draft` / `confirmed`), expected/received/damaged quantities, unit cost | See §6c |
+| `import_batches` | `file_name`, created/updated/adjusted/skipped counts, `errors`, `user_id` | One per committed import |
+| `inventory_exceptions` | `type`, `dedupe_key` (unique per organization), `product_id`, `title`, `detail`, `status`, `resolution_note`, resolver | See §6c |
 
 Constraints enforced by the database itself, so they hold even if application code is wrong:
 
 - `UNIQUE (organization_id, lower(sku))`: SKUs are unique within an organization, ignoring case.
   Two organizations can use the same SKU. Prisma cannot express an index on `lower()`, so it is
   written in the migration SQL.
-- `CHECK` constraints: quantity, thresholds and prices cannot be negative; names and SKUs
-  cannot be blank; emails must be stored lower-case.
-- Foreign keys with `ON DELETE CASCADE` from organization to users/products and user to
-  sessions; `last_updated_by_id` is set to `NULL` if that user is ever removed.
-- Indexes on `products (organization_id, name)` for listing/search and on `sessions (user_id)`
-  and `sessions (expires_at)`.
+- `CHECK` constraints: quantities, thresholds and prices cannot be negative; names and SKUs
+  cannot be blank; emails are stored lower-case; a ledger row's before + change must equal
+  after; a receipt line cannot have more damaged than received units.
+- Composite foreign keys `(product_id, organization_id)` on barcodes, evidence, exceptions and
+  receipt lines (and `(receipt_id, organization_id)` on receipt lines), so no row can refer to
+  another organization's product or receipt.
+- Foreign keys with `ON DELETE CASCADE` from an organization to everything it owns, and from a
+  user to their sessions; `last_updated_by_id` and ledger `user_id` are set to `NULL` if that
+  user is removed.
+- Indexes for listing and search (`products (organization_id, name)`), ledger history
+  (`stock_movements (organization_id, product_id, created_at)`) and session expiry.
 
 **Money.** Prices are `DECIMAL(12,2)` in PostgreSQL and travel through the API as strings such as
 `"12.50"`. They are never converted to a JavaScript float on the server, so no rounding error can
@@ -147,7 +174,9 @@ organization's data.
 1. **The organization comes only from the session.** `requireAuth` reads `organizationId` from
    the session's user row. Request bodies are parsed with zod schemas that do not include an
    `organizationId` field, so a value sent by the client is discarded.
-2. **Every product query includes it in the `WHERE` clause** (`services/productService.ts`):
+2. **Every query includes it in the `WHERE` clause.** Products are shown below; barcodes, stock
+   operations, evidence, trust, exceptions, imports, reports, suppliers, receipts and the
+   Copilot follow the same pattern in their services:
 
    | Operation | Query |
    | --- | --- |
@@ -165,10 +194,15 @@ organization's data.
    rather than `403`, which avoids confirming that an ID exists.
 4. **Malformed IDs** also return `404` instead of reaching the database.
 
+5. **The database backs this up.** Composite foreign keys that include `organization_id` (§3)
+   make it impossible to attach a barcode, evidence row, exception or receipt line to another
+   organization's product, even through an application bug.
+
 `server/test/tenantIsolation.test.ts` creates two organizations and verifies that organization A
 cannot list, search, read, update, adjust or delete organization B's product, that B's row is
 unchanged afterwards, that a forged `organizationId` in a request body is ignored, and that
-dashboards and settings stay separate.
+dashboards and settings stay separate. The barcode, stock and advanced-tool test files repeat
+these checks for their own resources.
 
 **SQL injection.** All queries go through Prisma's parameterised API. The one raw query (the
 low-stock list) uses Prisma's `$queryRaw` tagged template, which sends values as bind parameters.
@@ -184,7 +218,8 @@ low-stock list) uses Prisma's `$queryRaw` tagged template, which sends values as
   in one transaction. Concurrent changes are applied one after another, so they cannot
   overwrite each other or push stock below zero, and every ledger row starts exactly where the
   previous one ended (tested with simultaneous operations).
-- **Stock ledger** (`stock_movements`): type, source (`manual`, `camera`, `scanner`), quantity
+- **Stock ledger** (`stock_movements`): type (`create`, `edit`, `adjust`, `receive`, `issue`,
+  `count`), source (`manual`, `camera`, `scanner`, `import`, `receiving`, `copilot`), quantity
   before, change and after, user, note, and a snapshot of the product's SKU and name so history
   stays readable after a product is deleted. CHECK constraints reject a row whose arithmetic
   does not add up or that describes negative stock. History starts when the ledger was
@@ -401,11 +436,17 @@ decimals), `lowStockThreshold` (integer ≥ 0, or `null` for the organization de
 | Folder | Contents |
 | --- | --- |
 | `api/` | `client.ts` (the only place that calls `fetch`; turns error bodies into `ApiError`), `types.ts` (response shapes) |
-| `hooks/` | `useAccount` (session, login, signup, logout), `useInventory` (products, dashboard, settings queries and mutations), `useForm` (form state and validation), small utilities |
+| `hooks/` | `useAccount` (session, login, signup, logout), `useInventory` (products, dashboard, settings queries and mutations), `useAdvanced` (advanced-tool queries and mutations), `useAdvancedMode` (the per-device switch), `useForm` (form state and validation), small utilities |
 | `lib/` | `validation.ts` (zod schemas mirroring the server rules), `format.ts` (number, price, time formatting) |
 | `components/` | Shared UI: layout, buttons, text fields, dialog, alert, stock status badge, toast |
 | `pages/` | One component per route |
-| `products/` | The adjust-stock and delete-confirmation dialogs; `stockAdjustment.ts` (the calculation behind the adjust dialog) and `productView.ts` (status filter and sort), both pure and unit-tested |
+| `products/` | The adjust-stock and delete-confirmation dialogs, barcode list, stock history, catalogue photo; `stockAdjustment.ts` (the calculation behind the adjust dialog) and `productView.ts` (status filter and sort), both pure and unit-tested |
+| `scanner/` | Camera loop, decoder, barcode field, scan actions, Quick Add, the camera button for form fields (§7a) |
+| `advanced/` | Trust and evidence panels, product picker |
+| `labels/` | Label stock layouts (unit-tested sheet geometry) and barcode images |
+| `bulk/` | CSV parsing and automatic column matching (unit-tested) |
+| `ocr/` | Tesseract.js wrapper; the engine and English model are copied into `web/public/ocr` by `web/scripts/copy-ocr-assets.mjs` |
+| `offline/` | IndexedDB store, the operation queue and sync result classification (unit-tested) |
 
 **Routing and auth state** (`App.tsx`). On load the app calls `GET /api/auth/me`. With no session
 only `/login` and `/signup` exist and any other address redirects to login, remembering where the
@@ -415,7 +456,11 @@ the person is sent back to login.
 
 **Server state** uses TanStack Query. After any product change the product list and dashboard
 queries are invalidated, so totals and low-stock status update immediately. Logging in or out
-clears the whole cache so nothing from one organization is shown to the next person.
+clears the whole cache, and logging out also clears the offline snapshot and queue, so nothing
+from one organization is shown to the next person.
+
+**Code splitting.** The Scan page, the advanced pages and the form camera dialog are loaded on
+first use, which keeps the main bundle at about 460 kB (142 kB gzipped).
 
 **Forms** validate on blur and on submit with the same rules as the server, and show the
 server's field errors (for example a duplicate SKU) next to the right field. The server always
@@ -449,6 +494,9 @@ collapse to one column.
 
 ## 9. Testing
 
+Current totals (4 November 2026): 296 server tests in 17 files and 69 web tests in 9 files, all
+passing; type check, lint and production build pass.
+
 - `server/test/*.test.ts`: integration tests that run the real Express app against a real
   PostgreSQL database (`storiva_test`). Every test starts from empty tables. The suite refuses
   to run unless the database name ends in `_test`, so it cannot wipe a database with real data.
@@ -473,8 +521,13 @@ collapse to one column.
 - **Database**: a managed PostgreSQL instance (Neon). Its connection string is the only secret
   and is set as `DATABASE_URL` in Render, never committed.
 
-With `NODE_ENV=production` the server sets the `Secure` cookie flag, trusts the hosting proxy, keys the rate limiter on `CLIENT_IP_HEADER`, and
-serves `web/dist` with long-lived caching for hashed assets and `no-cache` for `index.html`.
+With `NODE_ENV=production` the server sets the `Secure` cookie flag, trusts the hosting proxy,
+keys the rate limiter on `CLIENT_IP_HEADER`, and serves `web/dist` with long-lived caching for
+hashed assets and `no-cache` for `index.html`, the service worker and the web manifest.
+
+**Migration practice.** Every migration is additive. Before each one reached production it was
+applied to a copy of the production data, and the existing rows were checksummed before and
+after to confirm they were unchanged.
 
 ## 11. Decisions and trade-offs
 
