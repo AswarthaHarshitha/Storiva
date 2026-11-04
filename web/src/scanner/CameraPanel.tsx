@@ -20,7 +20,7 @@ export function CameraPanel({ scanner }: { scanner: Scanner }) {
         />
         {live && (
           <>
-            {/* Guide frame; the whole image is decoded, the frame just shows where to aim. */}
+            {/* Guide frame. The centre is decoded at full resolution, and the whole image as well. */}
             <div aria-hidden className="pointer-events-none absolute inset-x-[12%] top-1/2 h-[38%] -translate-y-1/2 rounded-md border-2 border-white/85 shadow-[0_0_0_9999px_rgb(0_0_0/0.28)]" />
             <p
               role="status"
@@ -28,6 +28,11 @@ export function CameraPanel({ scanner }: { scanner: Scanner }) {
             >
               {status === "starting" ? "Starting camera…" : status === "paused" ? "Paused" : "Scanning…"}
             </p>
+            {status === "scanning" && (
+              <p className="absolute inset-x-3 bottom-3 text-center text-xs font-medium text-canvas [text-shadow:0_1px_2px_rgb(0_0_0/0.8)]">
+                Fill the box with the barcode. If it looks blurred, move it a little further away.
+              </p>
+            )}
           </>
         )}
         {!live && (

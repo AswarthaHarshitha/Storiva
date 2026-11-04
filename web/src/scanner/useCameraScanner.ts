@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { decodeImage } from "./decoder";
+import { CENTRE_REGION, decodeWithNative, decodeWithZxing, hasNativeDetector, type DecodedBarcode } from "./decoder";
 import { ScanDeduplicator } from "./dedupe";
 
 export type CameraStatus = "idle" | "starting" | "scanning" | "paused" | "error";
 
-const FRAME_INTERVAL_MS = 120;
-const MAX_DECODE_WIDTH = 960;
+const FRAME_INTERVAL_MS = 100;
+/** The whole frame is shrunk to at most this width for ZXing; the centre is always full size. */
+const MAX_FULL_FRAME_WIDTH = 1280;
+/** With a built-in detector, ZXing still runs every few frames for formats the detector lacks. */
+const ZXING_EVERY_WITH_NATIVE = 4;
 
 function cameraErrorMessage(error: unknown): string {
   if (!window.isSecureContext) return "The camera only works over HTTPS. Use the barcode field below instead.";
@@ -23,8 +26,9 @@ function cameraErrorMessage(error: unknown): string {
   }
 }
 
-interface TorchCapabilities extends MediaTrackCapabilities {
+interface CameraCapabilities extends MediaTrackCapabilities {
   torch?: boolean;
+  focusMode?: string[];
 }
 
 export function useCameraScanner(onDetect: (code: string, format: string) => void) {
@@ -35,6 +39,8 @@ export function useCameraScanner(onDetect: (code: string, format: string) => voi
   const pausedRef = useRef(false);
   const dedupe = useRef(new ScanDeduplicator());
   const onDetectRef = useRef(onDetect);
+  const frameRef = useRef(0);
+  const nativeRef = useRef(false);
 
   const [status, setStatus] = useState<CameraStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -53,32 +59,56 @@ export function useCameraScanner(onDetect: (code: string, format: string) => voi
     streamRef.current = null;
   }, []);
 
+  /** Draws part of the current frame onto the canvas, at `scale`, and returns its pixels. */
+  const grab = useCallback((video: HTMLVideoElement, sx: number, sy: number, sw: number, sh: number, scale: number) => {
+    canvasRef.current ??= document.createElement("canvas");
+    const canvas = canvasRef.current;
+    canvas.width = Math.round(sw * scale);
+    canvas.height = Math.round(sh * scale);
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return null;
+    context.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    return context.getImageData(0, 0, canvas.width, canvas.height);
+  }, []);
+
+  const readFrame = useCallback(
+    async (video: HTMLVideoElement): Promise<DecodedBarcode | undefined> => {
+      const frame = frameRef.current++;
+      if (nativeRef.current) {
+        const [found] = await decodeWithNative(video);
+        if (found) return found;
+        if (frame % ZXING_EVERY_WITH_NATIVE !== 0) return undefined;
+      }
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      // Alternate between the centre at full resolution (small or distant codes) and the whole
+      // frame (a code held off-centre).
+      const centre = Math.floor(frame / (nativeRef.current ? ZXING_EVERY_WITH_NATIVE : 1)) % 2 === 0;
+      const image = centre
+        ? grab(video, (vw * (1 - CENTRE_REGION.width)) / 2, (vh * (1 - CENTRE_REGION.height)) / 2, vw * CENTRE_REGION.width, vh * CENTRE_REGION.height, 1)
+        : grab(video, 0, 0, vw, vh, Math.min(1, MAX_FULL_FRAME_WIDTH / vw));
+      if (!image) return undefined;
+      const [found] = await decodeWithZxing(image);
+      return found;
+    },
+    [grab],
+  );
+
   const scanFrame = useCallback(async () => {
     const video = videoRef.current;
     if (!streamRef.current) return;
     if (video && !pausedRef.current && video.readyState >= 2 && video.videoWidth > 0) {
-      const scale = Math.min(1, MAX_DECODE_WIDTH / video.videoWidth);
-      const width = Math.round(video.videoWidth * scale);
-      const height = Math.round(video.videoHeight * scale);
-      canvasRef.current ??= document.createElement("canvas");
-      const canvas = canvasRef.current;
-      canvas.width = width;
-      canvas.height = height;
-      const context = canvas.getContext("2d", { willReadFrequently: true });
-      if (context) {
-        context.drawImage(video, 0, 0, width, height);
-        try {
-          const [found] = await decodeImage(context.getImageData(0, 0, width, height));
-          if (found && !pausedRef.current && dedupe.current.accept(found.text, performance.now())) {
-            onDetectRef.current(found.text, found.format);
-          }
-        } catch {
-          // A frame that cannot be decoded is simply skipped.
+      try {
+        const found = await readFrame(video);
+        if (found && !pausedRef.current && dedupe.current.accept(found.text, performance.now())) {
+          onDetectRef.current(found.text, found.format);
         }
+      } catch {
+        // A frame that cannot be decoded is simply skipped.
       }
     }
     if (streamRef.current) timerRef.current = window.setTimeout(() => void scanFrame(), FRAME_INTERVAL_MS);
-  }, []);
+  }, [readFrame]);
 
   const start = useCallback(
     async (requestedDeviceId?: string) => {
@@ -91,8 +121,9 @@ export function useCameraScanner(onDetect: (code: string, format: string) => voi
           audio: false,
           video: {
             ...(requestedDeviceId ? { deviceId: { exact: requestedDeviceId } } : { facingMode: { ideal: "environment" } }),
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
+            // More pixels per bar: small or distant barcodes need them.
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
           },
         });
         streamRef.current = stream;
@@ -103,7 +134,14 @@ export function useCameraScanner(onDetect: (code: string, format: string) => voi
         }
         const track = stream.getVideoTracks()[0];
         setDeviceId(track?.getSettings().deviceId ?? null);
-        setTorchSupported(Boolean((track?.getCapabilities?.() as TorchCapabilities | undefined)?.torch));
+        const capabilities = track?.getCapabilities?.() as CameraCapabilities | undefined;
+        setTorchSupported(Boolean(capabilities?.torch));
+        // Keep refocusing as the barcode moves closer; a blurred barcode is the usual reason for no read.
+        if (track && capabilities?.focusMode?.includes("continuous")) {
+          await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet] }).catch(() => undefined);
+        }
+        nativeRef.current = await hasNativeDetector();
+        frameRef.current = 0;
         setTorchOn(false);
         // Device labels are only available once permission has been granted.
         setDevices((await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput"));
