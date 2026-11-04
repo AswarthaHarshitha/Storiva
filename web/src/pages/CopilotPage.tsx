@@ -34,7 +34,9 @@ export function CopilotPage() {
   const nextId = useRef(1);
   const endRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => endRef.current?.scrollIntoView({ block: "end" }), [turns]);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [turns]);
 
   const ask = (question: string, productId?: string, replaceId?: number) => {
     if (!question.trim() || copilot.isPending) return;

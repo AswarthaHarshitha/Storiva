@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { rankMatches, similarity, tokens } from "../src/lib/textMatch.js";
+import { rankMatches, similarity, squash, tokens } from "../src/lib/textMatch.js";
 
 const products = [
   { id: "1", name: "Wireless Optical Mouse", sku: "COMP-001", brand: "Logi", barcodes: ["0097855066602"] },
@@ -46,3 +46,30 @@ describe("rankMatches", () => {
     expect(rankMatches("garden hose 20m", products)).toEqual([]);
   });
 });
+
+describe("OCR-tolerant matching", () => {
+  const products = [
+    { id: "a", name: "QA Item 12", sku: "QA-012" },
+    { id: "b", name: "QA Item 13", sku: "QA-013" },
+    { id: "c", name: "Bolt", sku: "B-1" },
+    { id: "d", name: "QA Item 1", sku: "QA-001" },
+  ];
+
+  it("offers a product whose name OCR ran together and misread", () => {
+    const [top, ...rest] = rankMatches("QAltem12 3 13.00 39.00", products);
+    expect(top?.product.id).toBe("a");
+    expect(top?.confidence).toBe("medium");
+    expect(rest.map((m) => m.product.id)).not.toContain("b");
+    expect(rest.map((m) => m.product.id)).not.toContain("d");
+  });
+
+  it("does not fold short names, which would match by accident", () => {
+    expect(rankMatches("Bo1tz", products).map((m) => m.product.id)).not.toContain("c");
+  });
+
+  it("folds look-alike characters but keeps other digits distinct", () => {
+    expect(squash("QA Item 10")).toBe(squash("QAltemlO"));
+    expect(squash("Item 12")).not.toBe(squash("Item 13"));
+  });
+});
+

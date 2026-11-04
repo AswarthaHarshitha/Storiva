@@ -47,9 +47,9 @@ export function ProductPicker({ label, value, onChange }: { label: string; value
         className="block w-full rounded-md border border-field bg-surface px-2.5 py-1.5 text-sm focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-0"
       />
       {options.length > 0 && (
-        <ul role="listbox" className="absolute z-20 mt-1 max-h-64 w-full min-w-56 overflow-auto rounded-md border border-line bg-surface shadow-lg">
+        <ul aria-label={`Matching products for ${label}`} className="absolute z-20 mt-1 max-h-64 w-full min-w-56 overflow-auto rounded-md border border-line bg-surface shadow-lg">
           {options.map((p) => (
-            <li key={p.id} role="option" aria-selected={false}>
+            <li key={p.id}>
               <button
                 type="button"
                 onClick={() => {

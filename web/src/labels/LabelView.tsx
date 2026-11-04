@@ -26,13 +26,13 @@ export function LabelView({ item, layout, symbology, showPrice }: { item: LabelI
       style={{ width: `${layout.width}mm`, height: `${layout.height}mm`, padding: "1.5mm", flexDirection: qr ? "row" : "column", gap: "1mm" }}
     >
       {qr && <div style={{ height: "100%", aspectRatio: "1" }}>{src && <img src={src} alt="" style={{ width: "100%", height: "100%" }} />}</div>}
-      <div className="flex min-w-0 flex-1 flex-col" style={{ gap: "0.5mm" }}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col" style={{ gap: "0.5mm" }}>
         <p className="font-semibold leading-tight" style={{ fontSize: small ? "2.4mm" : "3mm", display: "-webkit-box", WebkitLineClamp: qr ? 3 : 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
           {item.name}
         </p>
         {!qr && (
           <div className="min-h-0 flex-1">
-            {src && <img src={src} alt={`Code 128 barcode for ${item.sku}`} style={{ width: "100%", height: "100%", objectFit: "fill" }} />}
+            {src && <img src={src} alt={`Code 128 barcode for ${item.sku}`} style={{ display: "block", width: "100%", height: "100%", objectFit: "fill" }} />}
             {failed && <p style={{ fontSize: "2.2mm" }}>This SKU cannot be encoded.</p>}
           </div>
         )}

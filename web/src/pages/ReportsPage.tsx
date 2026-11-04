@@ -136,7 +136,7 @@ function Simulator() {
         <div className="mt-5 space-y-4" aria-live="polite">
           <table className="w-full text-sm">
             <thead className="border-b border-line text-left text-xs text-ink-muted">
-              <tr><th className="py-2 font-medium" /><th className="py-2 text-right font-medium">Actual now</th><th className="py-2 text-right font-medium">Hypothetical</th></tr>
+              <tr><th className="py-2 font-medium"><span className="sr-only">Measure</span></th><th className="py-2 text-right font-medium">Actual now</th><th className="py-2 text-right font-medium">Hypothetical</th></tr>
             </thead>
             <tbody className="divide-y divide-line tabular-nums">
               <tr><th scope="row" className="py-2 text-left font-normal">Units</th><td className="text-right">{formatCount(r.actual.quantity)}</td><td className="text-right font-medium">{formatCount(r.projected.quantity)}</td></tr>

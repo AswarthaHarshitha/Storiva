@@ -29,7 +29,8 @@ export function createApp({ catalogue = createConfiguredCatalogue() }: { catalog
           // 'wasm-unsafe-eval'. No other script sources are allowed.
           scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
           // Product photos shown from the public catalogue's image servers.
-          imgSrc: ["'self'", "data:", ...OPEN_FACTS_IMAGE_HOSTS.map((host) => `https://${host}`)],
+          // blob: is a photo the user just chose, shown back to them on this device.
+          imgSrc: ["'self'", "data:", "blob:", ...OPEN_FACTS_IMAGE_HOSTS.map((host) => `https://${host}`)],
         },
       },
     }),

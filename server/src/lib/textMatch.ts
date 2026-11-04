@@ -26,6 +26,36 @@ export function similarity(text: string, candidate: string): number {
   return (2 * shared) / (a.size + b.length);
 }
 
+/**
+ * Text reduced to letters and digits, with the characters OCR most often confuses folded
+ * together (I, l, 1 and | read alike; O and 0 read alike), so "QAltem12" and "QA Item 12" compare equal.
+ */
+export function squash(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[il1|!]/g, "l")
+    .replace(/0/g, "o")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Whether some run of whole words in the text, squashed and joined, equals the squashed name.
+ * Whole words only, so "Item 1" does not match inside "Item 12" and a quantity is not absorbed.
+ */
+function spansWords(text: string, name: string): boolean {
+  const words = text.split(/\s+/).map(squash).filter(Boolean);
+  for (let i = 0; i < words.length; i++) {
+    let joined = "";
+    for (let j = i; j < words.length && joined.length < name.length; j++) {
+      joined += words[j] ?? "";
+      if (joined === name) return true;
+    }
+  }
+  return false;
+}
+
 export type MatchConfidence = "exact" | "high" | "medium" | "low";
 
 export interface MatchCandidate {
@@ -64,6 +94,13 @@ export function rankMatches<T extends MatchCandidate>(text: string, products: T[
       continue;
     }
     const score = Math.max(similarity(text, product.name), product.brand ? similarity(text, `${product.brand} ${product.name}`) : 0);
+    const name = squash(product.name);
+    if (score < 0.55 && name.length >= 5 && spansWords(text, name)) {
+      // Never "high": a match that relies on ignoring spacing and look-alike characters is offered, not chosen.
+      // Longer names cover more of the line and rank first (score stays below 0.8).
+      results.push({ product, score: 0.55 + (0.2 * name.length) / squash(text).length, confidence: "medium", reason: `"${product.name}" matches if spacing and look-alike characters (I/l/1, O/0) are ignored` });
+      continue;
+    }
     if (score < 0.3) continue;
     const confidence: MatchConfidence = score >= 0.8 ? "high" : score >= 0.55 ? "medium" : "low";
     results.push({ product, score, confidence, reason: `${Math.round(score * 100)}% of the words match "${product.name}"` });

@@ -140,7 +140,7 @@ export function BulkPage() {
               {preview.data.summary.unchanged} unchanged, <span className={preview.data.summary.errors ? "font-medium text-danger" : ""}>{preview.data.summary.errors} with problems</span>
               {preview.data.summary.stockChanges > 0 && `; stock changes for ${preview.data.summary.stockChanges}`}.
             </p>
-            <div className="max-h-96 overflow-auto rounded-md border border-line">
+            <div tabIndex={0} role="region" aria-label="Rows to import" className="max-h-96 overflow-auto rounded-md border border-line">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 border-b border-line bg-sunken text-left text-xs text-ink-muted">
                   <tr><th className="px-3 py-2 font-medium">Row</th><th className="px-3 py-2 font-medium">SKU</th><th className="px-3 py-2 font-medium">Result</th><th className="px-3 py-2 font-medium">Details</th></tr>
