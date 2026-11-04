@@ -34,6 +34,9 @@ export function createApp({ catalogue = createConfiguredCatalogue() }: { catalog
       },
     }),
   );
+  // Imports and receipts carry many rows; everything else is small.
+  app.use("/api/imports", express.json({ limit: "5mb" }));
+  app.use("/api/receipts", express.json({ limit: "256kb" }));
   app.use(express.json({ limit: "20kb" }));
   app.use(cookieParser());
 

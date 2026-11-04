@@ -1,4 +1,4 @@
-import type { StockMovement, StockMovementSource } from "@prisma/client";
+import type { Prisma, StockMovement, StockMovementSource } from "@prisma/client";
 import { HttpError, notFound } from "../lib/errors.js";
 import { prisma } from "../lib/prisma.js";
 import { isUniqueViolation } from "../lib/prismaErrors.js";
@@ -7,7 +7,9 @@ import { recordMovement } from "./stockLedger.js";
 
 export type StockOperation =
   | { type: "receive" | "issue"; quantity: number }
-  | { type: "count"; countedQuantity: number; expectedQuantity: number };
+  | { type: "count"; countedQuantity: number; expectedQuantity: number }
+  // A correction by a stated amount, refused if the quantity changed since it was shown.
+  | { type: "adjust"; delta: number; expectedQuantity: number };
 
 export interface StockOperationInput {
   productId: string;
@@ -15,6 +17,7 @@ export interface StockOperationInput {
   source: StockMovementSource;
   note: string | null;
   idempotencyKey: string;
+  reference?: { type: string; id: string } | null;
 }
 
 export interface StockOperationResult {
@@ -83,38 +86,7 @@ export async function applyStockOperation(
   if (earlier) return earlier;
 
   try {
-    const movement = await prisma.$transaction(async (tx) => {
-      // Lock the row so the before/after values in the ledger are exact even under concurrency.
-      const [row] = await tx.$queryRaw<LockedProduct[]>`
-        SELECT id, sku, name, quantity_on_hand AS quantity
-          FROM products
-         WHERE id = ${input.productId}::uuid AND organization_id = ${organizationId}::uuid
-           FOR UPDATE`;
-      if (!row) throw notFound("Product");
-
-      const before = row.quantity;
-      const after = resultingQuantity(before, input.operation);
-
-      await tx.product.update({
-        where: { id: row.id },
-        data: {
-          quantityOnHand: after,
-          lastUpdatedById: userId,
-          ...(input.note !== null ? { lastAdjustmentNote: input.note } : {}),
-        },
-      });
-      return recordMovement(tx, {
-        organizationId,
-        product: row,
-        type: input.operation.type,
-        source: input.source,
-        quantityBefore: before,
-        quantityAfter: after,
-        userId,
-        note: input.note,
-        idempotencyKey: input.idempotencyKey,
-      });
-    });
+    const movement = await prisma.$transaction((tx) => applyWithin(tx, organizationId, userId, input));
     const full = await prisma.stockMovement.findUniqueOrThrow({ where: { id: movement.id }, include: withUser });
     return { movement: toMovementView(full), product: await getProduct(organizationId, input.productId), replayed: false };
   } catch (error) {
@@ -125,6 +97,61 @@ export async function applyStockOperation(
     }
     throw error;
   }
+}
+
+/**
+ * Applies one stock operation inside the caller's transaction: locks the product row, checks the
+ * operation against the current quantity, updates it and appends the ledger entry. Used directly
+ * by multi-product changes (imports, receipts) so they commit or roll back as a whole.
+ */
+export async function applyWithin(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  userId: string,
+  input: Omit<StockOperationInput, "idempotencyKey"> & { idempotencyKey?: string | null },
+) {
+  // Lock the row so the before/after values in the ledger are exact even under concurrency.
+  const [row] = await tx.$queryRaw<LockedProduct[]>`
+    SELECT id, sku, name, quantity_on_hand AS quantity
+      FROM products
+     WHERE id = ${input.productId}::uuid AND organization_id = ${organizationId}::uuid
+       FOR UPDATE`;
+  if (!row) throw notFound("Product");
+
+  const before = row.quantity;
+  const after = resultingQuantity(before, input.operation);
+
+  await tx.product.update({
+    where: { id: row.id },
+    data: {
+      quantityOnHand: after,
+      lastUpdatedById: userId,
+      ...(input.note !== null ? { lastAdjustmentNote: input.note } : {}),
+    },
+  });
+  return recordMovement(tx, {
+    organizationId,
+    product: row,
+    type: input.operation.type,
+    source: input.source,
+    quantityBefore: before,
+    quantityAfter: after,
+    userId,
+    note: input.note,
+    idempotencyKey: input.idempotencyKey ?? null,
+    reference: input.reference ?? null,
+  });
+}
+
+function changedWhileShown(expected: number, actual: number, action: string): HttpError {
+  // Someone changed the stock after the person looked at it. Applying the change now would
+  // silently discard theirs, so the person must confirm against the new figure.
+  return new HttpError(
+    409,
+    "QUANTITY_CHANGED",
+    `The system quantity changed from ${expected} to ${actual} while you were ${action}. Check against the new figure.`,
+    { expectedQuantity: String(actual) },
+  );
 }
 
 function resultingQuantity(before: number, operation: StockOperation): number {
@@ -139,17 +166,18 @@ function resultingQuantity(before: number, operation: StockOperation): number {
       }
       return before - operation.quantity;
     case "count":
-      if (operation.expectedQuantity !== before) {
-        // Someone changed the stock after the counter looked at it. Applying the count now would
-        // silently discard that change, so the counter must confirm against the new figure.
-        throw new HttpError(
-          409,
-          "QUANTITY_CHANGED",
-          `The system quantity changed from ${operation.expectedQuantity} to ${before} while you were counting. Check the count against the new figure.`,
-          { expectedQuantity: String(before) },
-        );
-      }
+      if (operation.expectedQuantity !== before) throw changedWhileShown(operation.expectedQuantity, before, "counting");
       return operation.countedQuantity;
+    case "adjust": {
+      if (operation.expectedQuantity !== before) throw changedWhileShown(operation.expectedQuantity, before, "reviewing the change");
+      const after = before + operation.delta;
+      if (after < 0) {
+        throw new HttpError(422, "INSUFFICIENT_STOCK", "Stock cannot go below zero.", {
+          delta: `Only ${before} ${before === 1 ? "unit is" : "units are"} on hand.`,
+        });
+      }
+      return after;
+    }
   }
 }
 

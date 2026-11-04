@@ -18,6 +18,13 @@ model Organization {
   barcodes                 ProductBarcode[]
   stockMovements           StockMovement[]
 
+  evidence     ProductEvidence[]
+  suppliers    Supplier[]
+  receipts     Receipt[]
+  receiptLines ReceiptLine[]
+  imports      ImportBatch[]
+  exceptions   InventoryException[]
+
   @@map("organizations")
 }
 
@@ -33,6 +40,10 @@ model User {
   stockMovements  StockMovement[]
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  evidence        ProductEvidence[]
+  receiptsCreated Receipt[]         @relation("ReceiptCreatedBy")
+  imports         ImportBatch[]
 
   @@index([organizationId])
   @@map("users")
@@ -83,6 +94,10 @@ model Product {
   createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  evidence     ProductEvidence[]
+  receiptLines ReceiptLine[]
+  exceptions   InventoryException[]
+
   @@index([organizationId, name])
   @@map("products")
 }
@@ -129,6 +144,9 @@ enum StockMovementSource {
   manual
   camera
   scanner
+  import
+  receiving
+  copilot
 
   @@map("stock_movement_source")
 }
@@ -152,6 +170,9 @@ model StockMovement {
   userId         String?             @map("user_id") @db.Uuid
   user           User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
   idempotencyKey String?             @map("idempotency_key") @db.VarChar(64)
+  // The document that caused this movement, e.g. a receipt or an import batch.
+  referenceType  String?             @map("reference_type") @db.VarChar(20)
+  referenceId    String?             @map("reference_id") @db.Uuid
   createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@unique([organizationId, idempotencyKey])
@@ -174,4 +195,162 @@ model CatalogueEntry {
 
   @@unique([provider, code])
   @@map("catalogue_entries")
+}
+
+enum EvidenceStatus {
+  verified // checked by a person (physical count, explicit confirmation)
+  documented // taken from a business document, e.g. a supplier receipt
+  entered // typed or imported by a user
+  unverified // retrieved from an external catalogue
+
+  @@map("evidence_status")
+}
+
+// Where a product's important fields came from. Append-only; the newest row per field is the
+// current origin. Products created before this table existed have no rows: their origin is
+// unknown and is shown that way rather than reconstructed.
+model ProductEvidence {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productId      String         @map("product_id") @db.Uuid
+  product        Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  field          String         @db.VarChar(30)
+  value          String?        @db.VarChar(500)
+  source         String         @db.VarChar(30)
+  status         EvidenceStatus
+  detail         String?        @db.VarChar(200)
+  referenceType  String?        @map("reference_type") @db.VarChar(20)
+  referenceId    String?        @map("reference_id") @db.Uuid
+  userId         String?        @map("user_id") @db.Uuid
+  user           User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([organizationId, productId, field, createdAt])
+  @@map("product_evidence")
+}
+
+model Supplier {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String       @db.VarChar(120)
+  email          String?      @db.VarChar(254)
+  phone          String?      @db.VarChar(40)
+  notes          String?      @db.VarChar(1000)
+  receipts       Receipt[]
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([organizationId])
+  @@map("suppliers")
+}
+
+enum ReceiptStatus {
+  draft
+  confirmed
+
+  @@map("receipt_status")
+}
+
+// A delivery being received: typed in, or read from an invoice photo and then reviewed.
+model Receipt {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @map("organization_id") @db.Uuid
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplierId     String?       @map("supplier_id") @db.Uuid
+  supplier       Supplier?     @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  reference      String?       @db.VarChar(80)
+  documentDate   DateTime?     @map("document_date") @db.Date
+  expectedDate   DateTime?     @map("expected_date") @db.Date
+  status         ReceiptStatus @default(draft)
+  source         String        @default("manual") @db.VarChar(20)
+  // The text read from an invoice photo, kept for review. The image itself is not stored.
+  documentText   String?       @map("document_text")
+  totalAmount    Decimal?      @map("total_amount") @db.Decimal(12, 2)
+  notes          String?       @db.VarChar(1000)
+  createdById    String?       @map("created_by_id") @db.Uuid
+  createdBy      User?         @relation("ReceiptCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  confirmedById  String?       @map("confirmed_by_id") @db.Uuid
+  confirmedAt    DateTime?     @map("confirmed_at") @db.Timestamptz(3)
+  lines          ReceiptLine[]
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([organizationId, createdAt])
+  @@index([supplierId])
+  @@map("receipts")
+}
+
+model ReceiptLine {
+  id               String       @id @default(uuid()) @db.Uuid
+  receiptId        String       @map("receipt_id") @db.Uuid
+  receipt          Receipt      @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  organizationId   String       @map("organization_id") @db.Uuid
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productId        String?      @map("product_id") @db.Uuid
+  product          Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  position         Int
+  description      String       @db.VarChar(300)
+  expectedQuantity Int?         @map("expected_quantity")
+  receivedQuantity Int          @map("received_quantity")
+  damagedQuantity  Int          @default(0) @map("damaged_quantity")
+  unitCost         Decimal?     @map("unit_cost") @db.Decimal(12, 2)
+  updateCost       Boolean      @default(false) @map("update_cost")
+  matchConfidence  String?      @map("match_confidence") @db.VarChar(10)
+
+  @@index([receiptId])
+  @@index([organizationId, productId])
+  @@map("receipt_lines")
+}
+
+model ImportBatch {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  fileName       String       @map("file_name") @db.VarChar(200)
+  createdCount   Int          @map("created_count")
+  updatedCount   Int          @map("updated_count")
+  adjustedCount  Int          @map("adjusted_count")
+  skippedCount   Int          @map("skipped_count")
+  // Rows left out of the import and why: [{ row, field, message }]
+  errors         Json
+  userId         String?      @map("user_id") @db.Uuid
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([organizationId, createdAt])
+  @@map("import_batches")
+}
+
+enum ExceptionStatus {
+  open
+  resolved
+  dismissed
+
+  @@map("exception_status")
+}
+
+// A problem worth a person's attention, detected from recorded data. dedupeKey stops the same
+// finding being raised twice.
+model InventoryException {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @map("organization_id") @db.Uuid
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  type           String          @db.VarChar(40)
+  dedupeKey      String          @map("dedupe_key") @db.VarChar(200)
+  productId      String?         @map("product_id") @db.Uuid
+  product        Product?        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  title          String          @db.VarChar(200)
+  detail         Json
+  status         ExceptionStatus @default(open)
+  resolutionNote String?         @map("resolution_note") @db.VarChar(500)
+  resolvedById   String?         @map("resolved_by_id") @db.Uuid
+  resolvedAt     DateTime?       @map("resolved_at") @db.Timestamptz(3)
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([organizationId, dedupeKey])
+  @@index([organizationId, status])
+  @@map("inventory_exceptions")
 }

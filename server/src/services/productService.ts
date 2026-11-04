@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma.js";
 import { isRecordNotFound, isUniqueViolation } from "../lib/prismaErrors.js";
 import { normalizeBarcode } from "../lib/barcode.js";
 import type { ProductInput } from "../validation/product.js";
+import { catalogueOriginFor, fieldValues, recordFieldChanges } from "./evidenceService.js";
 import { recordMovement } from "./stockLedger.js";
 
 // Every function here takes the caller's organizationId and includes it in each query's
@@ -158,6 +159,10 @@ export async function createProduct(organizationId: string, userId: string, inpu
           },
         },
       });
+      const originFor = input.catalogue
+        ? await catalogueOriginFor(tx, input.catalogue.provider, input.catalogue.sourceName, input.barcodes?.[0], fieldValues(product))
+        : () => ({ source: "manual", status: "entered" as const });
+      await recordFieldChanges(tx, organizationId, product.id, null, fieldValues(product), userId, originFor);
       await recordMovement(tx, {
         organizationId,
         product,
@@ -184,10 +189,15 @@ export async function updateProduct(
   try {
     await prisma.$transaction(async (tx) => {
       const before = await lockProduct(tx, organizationId, id);
+      const previous = await tx.product.findUniqueOrThrow({ where: { id } });
       const product = await tx.product.update({
         where: { id, organizationId },
         data: { ...toData(input), lastUpdatedById: userId },
       });
+      await recordFieldChanges(tx, organizationId, id, fieldValues(previous), fieldValues(product), userId, () => ({
+        source: "manual",
+        status: "entered",
+      }));
       if (product.quantityOnHand !== before.quantity) {
         await recordMovement(tx, {
           organizationId,

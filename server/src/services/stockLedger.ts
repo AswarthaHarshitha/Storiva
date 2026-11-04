@@ -10,6 +10,7 @@ export interface MovementInput {
   userId: string;
   note?: string | null;
   idempotencyKey?: string | null;
+  reference?: { type: string; id: string } | null;
 }
 
 /** Appends a ledger entry. Always called inside the transaction that changed the quantity. */
@@ -28,6 +29,8 @@ export function recordMovement(tx: Prisma.TransactionClient, input: MovementInpu
       userId: input.userId,
       note: input.note ?? null,
       idempotencyKey: input.idempotencyKey ?? null,
+      referenceType: input.reference?.type ?? null,
+      referenceId: input.reference?.id ?? null,
     },
   });
 }

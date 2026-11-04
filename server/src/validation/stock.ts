@@ -21,7 +21,8 @@ const units = (label: string) =>
 export const stockOperationSchema = z
   .object({
     productId: z.uuid({ error: "Choose a product." }),
-    source: z.enum(["manual", "camera", "scanner"]).default("manual"),
+    // "import" and "receiving" are recorded by the server itself and cannot be claimed here.
+    source: z.enum(["manual", "camera", "scanner", "copilot"]).default("manual"),
     note: z
       .string()
       .trim()
@@ -44,8 +45,15 @@ export const stockOperationSchema = z
           countedQuantity: units("Counted quantity").min(0, "A count cannot be negative."),
           expectedQuantity: units("Expected quantity").min(0),
         }),
+        z.object({
+          type: z.literal("adjust"),
+          delta: units("Change")
+            .min(-1_000_000_000)
+            .refine((value) => value !== 0, "Enter a change other than zero."),
+          expectedQuantity: units("Expected quantity").min(0),
+        }),
       ],
-      { error: "Choose receive, issue or count." },
+      { error: "Choose receive, issue, count or adjust." },
     ),
   );
 

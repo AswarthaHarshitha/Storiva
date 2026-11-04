@@ -12,7 +12,9 @@ export async function apply(req: Request, res: Response) {
   const operation =
     input.type === "count"
       ? { type: input.type, countedQuantity: input.countedQuantity, expectedQuantity: input.expectedQuantity }
-      : { type: input.type, quantity: input.quantity };
+      : input.type === "adjust"
+        ? { type: input.type, delta: input.delta, expectedQuantity: input.expectedQuantity }
+        : { type: input.type, quantity: input.quantity };
   const result = await applyStockOperation(organizationId, userId, {
     productId: input.productId,
     operation,

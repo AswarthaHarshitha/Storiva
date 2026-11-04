@@ -5,6 +5,7 @@ import { HttpError } from "../lib/errors.js";
 import { authOf } from "../middleware/requireAuth.js";
 import { parseInput } from "../middleware/validate.js";
 import { lookupBarcode } from "../services/barcodeService.js";
+import { recordUnidentifiedBarcode } from "../services/exceptionService.js";
 import { barcodeLookupSchema } from "../validation/stock.js";
 
 /**
@@ -24,5 +25,6 @@ export const catalogueLookup = (catalogue: CatalogueService) => async (req: Requ
 
   const searchable = normalized.kind === "gtin" && catalogue.enabled;
   const result = searchable ? await catalogue.lookup(normalized.code) : { matches: [], unavailable: [] };
+  if (result.matches.length === 0) await recordUnidentifiedBarcode(authOf(req).organizationId, own.code, searchable);
   res.json({ data: { code: own.code, kind: own.kind, existing: null, checkedCatalogues: searchable, ...result } });
 };

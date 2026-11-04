@@ -29,6 +29,17 @@ export const credentialLimiter = rateLimit({
   message: { error: { code: "RATE_LIMITED", message: "Too many attempts. Please wait a few minutes and try again." } },
 });
 
+// The Copilot runs several queries per question; keep it to a human pace per organization.
+export const copilotLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 40,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  keyGenerator: (req) => authOf(req).organizationId,
+  skip: () => env.NODE_ENV === "test",
+  message: { error: { code: "RATE_LIMITED", message: "Too many questions at once. Please wait a moment." } },
+});
+
 // Catalogue lookups reach external services; limit each organization so one account cannot use
 // up the shared provider budgets.
 export const catalogueLimiter = rateLimit({
